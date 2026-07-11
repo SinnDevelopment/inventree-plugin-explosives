@@ -1,0 +1,87 @@
+{% extends "report/inventree_report_base.html" %}
+{% load i18n report %}
+
+{#
+  Transport manifest line — the dangerous-goods description for a single stock
+  item being moved.
+
+  Model: StockItem
+  Install: Admin Center > Reports > Report Templates > new template, model
+  "Stock Item", and upload this file.
+
+  NOTE: this renders the data InvenTree holds. It is an aid to preparing
+  transport documentation, not a substitute for it: the consignor remains
+  responsible for the dangerous-goods declaration.
+#}
+
+{% block style %}
+body { font-family: sans-serif; font-size: 10pt; }
+h1 { font-size: 16pt; }
+table { width: 100%; border-collapse: collapse; margin-top: 4mm; }
+th, td { border: 1px solid #999; padding: 2mm; text-align: left; }
+th { background: #eee; width: 40%; }
+.note { color: #555; font-size: 8pt; margin-top: 6mm; }
+.warn { color: #b00; }
+{% endblock style %}
+
+{% block page_content %}
+
+<h1>{% trans "Dangerous Goods — Transport Details" %}</h1>
+
+<table>
+  <tr>
+    <th>{% trans "Part" %}</th>
+    <td>{{ stock_item.part.name }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "Batch" %}</th>
+    <td>{{ stock_item.batch|default:"-" }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "UN number" %}</th>
+    <td>{{ explosives.un_number|default:"-" }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "Proper shipping name" %}</th>
+    <td>{{ explosives.proper_shipping_name|default:"-" }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "Classification code" %}</th>
+    <td>{{ explosives.classification_code|default:"-" }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "Hazard division" %}</th>
+    <td>{{ explosives.division|default:"-" }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "Compatibility group" %}</th>
+    <td>{{ explosives.compatibility_group|default:"-" }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "Quantity" %}</th>
+    <td>{{ explosives.quantity }}</td>
+  </tr>
+  <tr>
+    <th>{% trans "Net explosive quantity" %}</th>
+    <td><strong>{{ explosives.neq_total_kg|floatformat:3 }} kg</strong></td>
+  </tr>
+  <tr>
+    <th>{% trans "Gross mass" %}</th>
+    <td>{{ explosives.gross_mass_total_kg|floatformat:3 }} kg</td>
+  </tr>
+</table>
+
+{% if explosives.issues %}
+<h3 class="warn">{% trans "Data integrity warnings" %}</h3>
+<ul>
+  {% for issue in explosives.issues %}
+  <li class="warn">{{ issue }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<p class="note">
+  {% trans "Generated from InvenTree inventory data. The consignor remains responsible for the dangerous goods declaration." %}
+</p>
+
+{% endblock page_content %}

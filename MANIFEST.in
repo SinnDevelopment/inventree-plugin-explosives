@@ -1,0 +1,2 @@
+recursive-include inventree_explosives/static *
+recursive-include inventree_explosives/report_templates *

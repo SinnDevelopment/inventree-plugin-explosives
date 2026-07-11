@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventree-plugin-explosives"
+description = "Explosives inventory management for InvenTree: net explosive quantity, gross mass, UN classification and magazine licence limits"
+dynamic = ["version"]
+authors = [
+    { name = "Sinn Development Ltd", email = "engineering@sinndevelopment.com" },
+]
+readme = "README.md"
+license = "MIT"
+keywords = ["inventree", "plugin", "explosives", "neq", "adr", "compliance"]
+
+# NOTE: InvenTree 1.4 pins Python 3.12. A floor above that (the original stub
+# said 3.14) makes this plugin uninstallable into the InvenTree virtualenv.
+requires-python = ">=3.11"
+
+dependencies = []
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Framework :: InvenTree",
+]
+
+[project.urls]
+Homepage = "https://github.com/sinndevelopment/inventree-plugin-explosives"
+Repository = "https://github.com/sinndevelopment/inventree-plugin-explosives"
+Issues = "https://github.com/sinndevelopment/inventree-plugin-explosives/issues"
+
+[project.entry-points."inventree_plugins"]
+Explosives = "inventree_explosives.core:ExplosivesPlugin"
+
+[tool.setuptools.packages.find]
+where = [""]
+include = ["inventree_explosives*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "inventree_explosives.PLUGIN_VERSION" }
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.ruff]
+exclude = [".git", "__pycache__", ".venv", "venv", "frontend"]
+src = ["inventree_explosives"]

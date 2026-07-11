@@ -1,0 +1,137 @@
+{% extends "report/inventree_report_base.html" %}
+{% load i18n report barcode %}
+
+{#
+  Magazine register — the standing record of what explosive is held in a
+  magazine, and how that compares to its licence.
+
+  Model: StockLocation
+  Install: Admin Center > Reports > Report Templates > new template, model
+  "Stock Location", and upload this file.
+
+  All values come from the explosives plugin via ReportMixin (see core.py).
+  `explosives` is the plugin's single namespaced context key.
+#}
+
+{% block style %}
+body { font-family: sans-serif; font-size: 10pt; }
+h1 { font-size: 16pt; margin-bottom: 2mm; }
+.meta { color: #555; margin-bottom: 6mm; }
+table { width: 100%; border-collapse: collapse; margin-top: 4mm; }
+th, td { border: 1px solid #999; padding: 2mm; text-align: left; }
+th { background: #eee; }
+td.num, th.num { text-align: right; }
+.breach { color: #b00; font-weight: bold; }
+.summary td { border: none; padding: 1mm 4mm 1mm 0; }
+.summary { width: auto; margin-bottom: 4mm; }
+{% endblock style %}
+
+{% block page_content %}
+
+<h1>{% trans "Magazine Register" %}</h1>
+
+<div class="meta">
+  <strong>{{ location.name }}</strong>
+  {% if location.description %} — {{ location.description }}{% endif %}
+  <br>
+  {% trans "Generated" %}: {% now "Y-m-d H:i" %}
+</div>
+
+<table class="summary">
+  <tr>
+    <td>{% trans "Net explosive quantity held" %}</td>
+    <td class="num"><strong>{{ explosives.neq_kg|floatformat:3 }} kg</strong></td>
+  </tr>
+  <tr>
+    <td>{% trans "Licensed maximum" %}</td>
+    <td class="num">
+      {% if explosives.limit_kg %}
+        {{ explosives.limit_kg|floatformat:3 }} kg
+      {% else %}
+        {% trans "Not licensed" %}
+      {% endif %}
+    </td>
+  </tr>
+  {% if explosives.limit_kg %}
+  <tr>
+    <td>{% trans "Utilisation" %}</td>
+    <td class="num {% if explosives.over_limit %}breach{% endif %}">
+      {{ explosives.utilisation|floatformat:3 }}
+      {% if explosives.over_limit %} — {% trans "OVER LIMIT" %}{% endif %}
+    </td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td>{% trans "Gross mass held" %}</td>
+    <td class="num">{{ explosives.gross_mass_kg|floatformat:3 }} kg</td>
+  </tr>
+</table>
+
+{% if explosives.by_division %}
+<h3>{% trans "By hazard division" %}</h3>
+<table>
+  <thead>
+    <tr>
+      <th>{% trans "Division" %}</th>
+      <th class="num">{% trans "NEQ (kg)" %}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for division, mass in explosives.by_division.items %}
+    <tr>
+      <td>{{ division }}</td>
+      <td class="num">{{ mass|floatformat:3 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h3>{% trans "Contents" %}</h3>
+<table>
+  <thead>
+    <tr>
+      <th>{% trans "Part" %}</th>
+      <th>{% trans "Location" %}</th>
+      <th>{% trans "Class" %}</th>
+      <th>{% trans "UN No." %}</th>
+      <th class="num">{% trans "Quantity" %}</th>
+      <th class="num">{% trans "NEQ/unit (kg)" %}</th>
+      <th class="num">{% trans "NEQ (kg)" %}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in explosives.items %}
+    <tr>
+      <td>{{ item.part_name }}</td>
+      <td>{{ item.location_name|default:"-" }}</td>
+      <td>{{ item.classification_code|default:"-" }}</td>
+      <td>{{ item.un_number|default:"-" }}</td>
+      <td class="num">{{ item.quantity }}</td>
+      <td class="num">{{ item.neq_per_unit_kg|floatformat:4 }}</td>
+      <td class="num">{{ item.neq_total_kg|floatformat:3 }}</td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="7">{% trans "No explosive stock held in this location." %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <th colspan="6" class="num">{% trans "Total" %}</th>
+      <th class="num">{{ explosives.neq_kg|floatformat:3 }}</th>
+    </tr>
+  </tfoot>
+</table>
+
+{% if explosives.config_errors %}
+<h3 class="breach">{% trans "Configuration warnings" %}</h3>
+<ul>
+  {% for error in explosives.config_errors %}
+  <li class="breach">{{ error }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% endblock page_content %}
