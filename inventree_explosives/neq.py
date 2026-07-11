@@ -242,7 +242,6 @@ def is_present(stock_item, count_all_present: bool = True) -> bool:
     saved, which a queryset filter cannot do. Keep the two rules in step;
     test_limits.PresentStockPredicateTest asserts they agree.
     """
-    from stock.models import StockItem
     from stock.status_codes import StockStatus, StockStatusGroups
 
     if stock_item.quantity is None or float(stock_item.quantity) <= 0:

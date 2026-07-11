@@ -1,44 +1,73 @@
-# Ensure that the plugin meets the required style guidelines
-# Ensure that the plugin builds correctly
+# Style checks and build verification on every push and pull request.
+#
+# The full test suite needs an InvenTree checkout and so is slower; it runs on
+# pushes to main (see the `tests` job below) and again before any PyPI release.
 
 name: CI Checks
 
 on: ["push", "pull_request"]
 
+permissions:
+  contents: read
+
 jobs:
-  ci:
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v7
+
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v6
         with:
-          python-version: 3.11
-      - name: Install Deps
-        run: |
-          pip install -U ruff
-          pip install -U wheel setuptools twine build
-      - name: Style Checks
-        run: |
-          ruff check
-      - name: Build Plugin
-        run: |
-          python -m build
-  
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade ruff build
+
+      - name: Style checks
+        run: ruff check
+
+      # hazard.py has no Django imports, so the UN classification table can be
+      # checked without an InvenTree checkout.
+      - name: Classification table tests
+        run: python -m unittest inventree_explosives.test_hazard -v
+
+      - name: Build package
+        run: python -m build
+
   frontend:
+    name: Frontend
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
-      - name: Install Node.js
-        uses: actions/setup-node@v2
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: "20"
-      - name: Build Frontend
-        run: |
-          cd frontend
-          npm install
-          npm run translate
-          npm run build
-          npm run lint
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Lint
+        run: npm run lint
+        working-directory: frontend
+
+      - name: Build
+        run: npm run build
+        working-directory: frontend
+
+  tests:
+    name: Full test suite
+    # Only on pushes to main: the suite clones and installs InvenTree, so it is
+    # too slow to run on every PR push. It also gates every PyPI release.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/test.yaml

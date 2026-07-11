@@ -1,0 +1,96 @@
+# Full plugin test suite.
+#
+# The suite imports InvenTree.unit_test and the InvenTree models, so it can only
+# run against a real InvenTree checkout. This is a reusable workflow, called by
+# ci.yaml (on pushes to main) and by publish.yml (before publishing a release).
+
+name: Test Suite
+
+on:
+  workflow_call:
+    inputs:
+      inventree-ref:
+        description: InvenTree git ref to test against
+        type: string
+        default: "1.4.1"
+  workflow_dispatch:
+    inputs:
+      inventree-ref:
+        description: InvenTree git ref to test against
+        type: string
+        default: "1.4.1"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: InvenTree ${{ inputs.inventree-ref || '1.4.1' }}
+    runs-on: ubuntu-latest
+
+    env:
+      # InvenTree refuses to start without these. sqlite keeps the job
+      # self-contained; the test runner builds a throwaway database anyway.
+      INVENTREE_DB_ENGINE: sqlite3
+      INVENTREE_DB_NAME: /tmp/inventree_ci.sqlite3
+      INVENTREE_MEDIA_ROOT: /tmp/inventree_media
+      INVENTREE_STATIC_ROOT: /tmp/inventree_static
+      INVENTREE_BACKUP_DIR: /tmp/inventree_backup
+      INVENTREE_SECRET_KEY: ci-secret-key-not-for-production
+
+      # Without these the plugin is never loaded into the registry and every
+      # validation-hook test would pass vacuously.
+      INVENTREE_PLUGINS_ENABLED: "true"
+      INVENTREE_PLUGIN_TESTING: "true"
+      INVENTREE_PLUGIN_TESTING_SETUP: "true"
+
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v7
+        with:
+          path: plugin
+
+      - name: Checkout InvenTree
+        uses: actions/checkout@v7
+        with:
+          repository: inventree/InvenTree
+          ref: ${{ inputs.inventree-ref || '1.4.1' }}
+          path: InvenTree
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: plugin/frontend/package-lock.json
+
+      # test_ui.py checks that the built bundle exports the entrypoints core.py
+      # asks for. It skips itself when static/ is absent, so without this step
+      # that check would silently not run.
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+        working-directory: plugin/frontend
+
+      # requirements-dev.txt is required, not optional: InvenTree's test runner
+      # (django_slowtests) lives there, and manage.py test cannot start without it.
+      - name: Install InvenTree dependencies
+        run: |
+          pip install -r InvenTree/src/backend/requirements.txt
+          pip install -r InvenTree/src/backend/requirements-dev.txt
+
+      - name: Install plugin
+        run: pip install -e plugin
+
+      - name: Create InvenTree directories
+        run: mkdir -p /tmp/inventree_media /tmp/inventree_static /tmp/inventree_backup
+
+      - name: Run test suite
+        run: python InvenTree/src/backend/InvenTree/manage.py test inventree_explosives -v 2

@@ -1,4 +1,8 @@
 import {
+  checkPluginVersion,
+  type InvenTreePluginContext
+} from '@inventreedb/ui';
+import {
   Alert,
   Badge,
   Card,
@@ -12,14 +16,12 @@ import {
 } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
-import { checkPluginVersion, type InvenTreePluginContext } from '@inventreedb/ui';
-
-import { type PartExplosive, fetchJson, kg, urls } from './api';
+import { fetchJson, kg, type PartExplosive, urls } from './api';
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <Stack gap={2}>
-      <Text size="sm" c="dimmed">
+      <Text size='sm' c='dimmed'>
         {label}
       </Text>
       <Text fw={600}>{value}</Text>
@@ -48,7 +50,7 @@ function PartPanel({ context }: { context: InvenTreePluginContext }) {
   if (query.isLoading) {
     return (
       <Group>
-        <Loader size="sm" />
+        <Loader size='sm' />
         <Text>Loading explosive data…</Text>
       </Group>
     );
@@ -58,7 +60,7 @@ function PartPanel({ context }: { context: InvenTreePluginContext }) {
 
   if (query.isError || !data) {
     return (
-      <Alert color="red" title="Could not load explosives data">
+      <Alert color='red' title='Could not load explosives data'>
         The plugin API did not respond. Check that the <b>Enable plugin URLs</b>{' '}
         (ENABLE_PLUGINS_URL) global setting is switched on.
       </Alert>
@@ -66,10 +68,10 @@ function PartPanel({ context }: { context: InvenTreePluginContext }) {
   }
 
   return (
-    <Stack gap="md">
+    <Stack gap='md'>
       {data.issues.length > 0 ? (
-        <Alert color="orange" title="Data integrity issues">
-          <List size="sm">
+        <Alert color='orange' title='Data integrity issues'>
+          <List size='sm'>
             {data.issues.map((issue) => (
               <List.Item key={issue}>{issue}</List.Item>
             ))}
@@ -77,17 +79,17 @@ function PartPanel({ context }: { context: InvenTreePluginContext }) {
         </Alert>
       ) : null}
 
-      <Card withBorder padding="md">
-        <Title order={5} mb="md">
+      <Card withBorder padding='md'>
+        <Title order={5} mb='md'>
           Classification
         </Title>
 
         <SimpleGrid cols={{ base: 2, sm: 4 }}>
           <Field
-            label="Classification code"
+            label='Classification code'
             value={
               data.classification_code ? (
-                <Badge size="lg" variant="filled">
+                <Badge size='lg' variant='filled'>
                   {data.classification_code}
                 </Badge>
               ) : (
@@ -95,35 +97,35 @@ function PartPanel({ context }: { context: InvenTreePluginContext }) {
               )
             }
           />
-          <Field label="Hazard division" value={data.division ?? '—'} />
+          <Field label='Hazard division' value={data.division ?? '—'} />
           <Field
-            label="Compatibility group"
+            label='Compatibility group'
             value={data.compatibility_group ?? '—'}
           />
-          <Field label="UN number" value={data.un_number ?? '—'} />
+          <Field label='UN number' value={data.un_number ?? '—'} />
         </SimpleGrid>
 
-        <Stack gap={2} mt="md">
-          <Text size="sm" c="dimmed">
+        <Stack gap={2} mt='md'>
+          <Text size='sm' c='dimmed'>
             Proper shipping name
           </Text>
           <Text fw={600}>{data.proper_shipping_name ?? '—'}</Text>
         </Stack>
       </Card>
 
-      <Card withBorder padding="md">
-        <Title order={5} mb="md">
+      <Card withBorder padding='md'>
+        <Title order={5} mb='md'>
           Mass (per unit)
         </Title>
 
         <SimpleGrid cols={{ base: 1, sm: 3 }}>
           <Field
-            label="Net explosive quantity"
+            label='Net explosive quantity'
             value={kg(data.neq_per_unit_kg)}
           />
-          <Field label="Gross mass" value={kg(data.gross_mass_per_unit_kg)} />
+          <Field label='Gross mass' value={kg(data.gross_mass_per_unit_kg)} />
           <Field
-            label="Packaging / inert mass"
+            label='Packaging / inert mass'
             value={
               data.gross_mass_per_unit_kg !== null &&
               data.neq_per_unit_kg !== null
@@ -133,9 +135,9 @@ function PartPanel({ context }: { context: InvenTreePluginContext }) {
           />
         </SimpleGrid>
 
-        <Text size="xs" c="dimmed" mt="sm">
-          Magazine totals are computed as stock quantity × net explosive quantity
-          per unit.
+        <Text size='xs' c='dimmed' mt='sm'>
+          Magazine totals are computed as stock quantity × net explosive
+          quantity per unit.
         </Text>
       </Card>
     </Stack>

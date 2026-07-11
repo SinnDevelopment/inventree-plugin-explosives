@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import type { InvenTreePluginContext } from '@inventreedb/ui';
 import { Alert, Button, Code, Group, List, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-
-import type { InvenTreePluginContext } from '@inventreedb/ui';
+import { useState } from 'react';
 
 import { urls } from './api';
 
@@ -20,7 +19,11 @@ interface BootstrapResult {
  * migration, before the database was ready) the setup button creates them without
  * requiring a server restart.
  */
-function PluginSettingsDisplay({ context }: { context: InvenTreePluginContext }) {
+function PluginSettingsDisplay({
+  context
+}: {
+  context: InvenTreePluginContext;
+}) {
   const [result, setResult] = useState<BootstrapResult | null>(null);
   const [running, setRunning] = useState(false);
 
@@ -52,17 +55,17 @@ function PluginSettingsDisplay({ context }: { context: InvenTreePluginContext })
   };
 
   return (
-    <Stack gap="md">
-      <Alert color="blue" title="Parameter templates">
-        <Stack gap="xs">
-          <Text size="sm">
+    <Stack gap='md'>
+      <Alert color='blue' title='Parameter templates'>
+        <Stack gap='xs'>
+          <Text size='sm'>
             This plugin stores explosive properties as InvenTree parameters. It
-            creates the templates it needs automatically, but you can re-run setup
-            here if any are missing.
+            creates the templates it needs automatically, but you can re-run
+            setup here if any are missing.
           </Text>
-          <Text size="sm">
-            Explosive properties live on the <b>Part</b>. The licensed limit lives
-            on the <b>Stock Location</b>, as{' '}
+          <Text size='sm'>
+            Explosive properties live on the <b>Part</b>. The licensed limit
+            lives on the <b>Stock Location</b>, as{' '}
             <Code>Maximum Net Explosive Quantity</Code>.
           </Text>
         </Stack>
@@ -75,8 +78,8 @@ function PluginSettingsDisplay({ context }: { context: InvenTreePluginContext })
       </Group>
 
       {result?.created.length ? (
-        <Alert color="green" title="Created">
-          <List size="sm">
+        <Alert color='green' title='Created'>
+          <List size='sm'>
             {result.created.map((name) => (
               <List.Item key={name}>{name}</List.Item>
             ))}
@@ -85,8 +88,8 @@ function PluginSettingsDisplay({ context }: { context: InvenTreePluginContext })
       ) : null}
 
       {result?.errors.length ? (
-        <Alert color="red" title="Configuration problems">
-          <List size="sm">
+        <Alert color='red' title='Configuration problems'>
+          <List size='sm'>
             {result.errors.map((error) => (
               <List.Item key={error}>{error}</List.Item>
             ))}

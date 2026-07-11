@@ -10,7 +10,6 @@ becomes 0.5 and quantities can simply be summed. If that assumption is wrong,
 every number the plugin produces is wrong.
 """
 
-from django.core.exceptions import ValidationError
 
 from InvenTree.unit_test import InvenTreeTestCase
 

@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { viteExternalsPlugin } from 'vite-plugin-externals'
-import { lingui } from "@lingui/vite-plugin";
 
 
 /**
@@ -12,10 +11,13 @@ export const externalLibs : Record<string, string> = {
   react: 'React',
   'react-dom': 'ReactDOM',
   'ReactDom': 'ReactDOM',
-  '@lingui/core': 'LinguiCore',
-  '@lingui/react': 'LinguiReact',
   '@mantine/core': 'MantineCore',
   "@mantine/notifications": 'MantineNotifications',
+  // This plugin does not use lingui directly, but @inventreedb/ui depends on it.
+  // Anything it pulls in must resolve to InvenTree's global, not a second copy
+  // bundled into the panel.
+  '@lingui/core': 'LinguiCore',
+  '@lingui/react': 'LinguiReact',
 };
 
 // Just the keys of the externalLibs object
@@ -27,12 +29,8 @@ const externalKeys = Object.keys(externalLibs);
  */
 export default defineConfig({
   plugins: [
-    lingui(),
     react({
       jsxRuntime: 'classic',
-      babel: {
-        plugins: ['macros'], // Required for @lingui macros
-      },
     }),
     viteExternalsPlugin(externalLibs),
   ],

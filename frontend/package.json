@@ -4,9 +4,6 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "extract": "lingui extract",
-    "compile": "lingui compile --typescript",
-    "translate": "lingui extract && lingui compile --typescript",
     "lint": "npx @biomejs/biome check ./src",
     "lint:fix": "npx @biomejs/biome check ./src --fix",
     "build": "tsc -b && vite build --emptyOutDir",
@@ -24,8 +21,6 @@
   "peerDependencies": {},
   "devDependencies": {
     "@biomejs/biome": "2.0.0",
-    "@lingui/swc-plugin": "latest",
-    "@lingui/vite-plugin": "latest",
     "@vitejs/plugin-react-swc": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
@@ -36,9 +31,6 @@
     "vite-plugin-externals": "^0.6.2"
   },
   "overrides": {
-    "@lingui/core": "^5.9.2",
-    "@lingui/cli": "^5.9.2",
-    "@lingui/macro": "^5.9.2",
     "glob": ">= 13.0.0",
     "vite": "^6.4.2"
   }

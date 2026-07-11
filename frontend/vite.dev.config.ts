@@ -5,7 +5,6 @@ import viteConfig, { externalLibs } from './vite.config'
 import InventreeHmrPlugin from '@inventreedb/ui/vite';
 
 import react from "@vitejs/plugin-react-swc"
-import { lingui } from "@lingui/vite-plugin"
 
 
 /**
@@ -37,9 +36,7 @@ export default defineConfig((cfg) => {
   delete config.optimizeDeps;
 
   config.plugins = [
-    lingui(),
     react({
-      plugins: [["@lingui/swc-plugin", {}]],
       reactRefreshHost: 'http://localhost:5173',
     }),
     viteExternalsPlugin(externalLibs),

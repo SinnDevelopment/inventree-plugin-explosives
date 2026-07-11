@@ -1,4 +1,7 @@
-import { useMemo } from 'react';
+import {
+  checkPluginVersion,
+  type InvenTreePluginContext
+} from '@inventreedb/ui';
 import {
   Alert,
   Badge,
@@ -13,16 +16,9 @@ import {
   Title
 } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 
-import { checkPluginVersion, type InvenTreePluginContext } from '@inventreedb/ui';
-
-import {
-  type LocationNEQ,
-  fetchJson,
-  kg,
-  urls,
-  utilisationColor
-} from './api';
+import { fetchJson, kg, type LocationNEQ, urls, utilisationColor } from './api';
 
 /**
  * NEQ panel for a StockLocation.
@@ -36,7 +32,8 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
   const query = useQuery(
     {
       queryKey: ['explosives-location-neq', locationId],
-      queryFn: () => fetchJson<LocationNEQ>(context, urls.locationNEQ(locationId!)),
+      queryFn: () =>
+        fetchJson<LocationNEQ>(context, urls.locationNEQ(locationId!)),
       enabled: !!locationId
     },
     context.queryClient
@@ -54,7 +51,7 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
   if (query.isLoading) {
     return (
       <Group>
-        <Loader size="sm" />
+        <Loader size='sm' />
         <Text>Calculating net explosive quantity…</Text>
       </Group>
     );
@@ -62,10 +59,10 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
 
   if (query.isError || !data) {
     return (
-      <Alert color="red" title="Could not load explosives data">
-        <Stack gap="xs">
+      <Alert color='red' title='Could not load explosives data'>
+        <Stack gap='xs'>
           <Text>The plugin API did not respond.</Text>
-          <Text size="sm" c="dimmed">
+          <Text size='sm' c='dimmed'>
             Check that the <b>Enable plugin URLs</b> (ENABLE_PLUGINS_URL) global
             setting is switched on.
           </Text>
@@ -77,12 +74,12 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
   const color = utilisationColor(data.utilisation, data.over_limit);
 
   return (
-    <Stack gap="md">
+    <Stack gap='md'>
       {data.config_errors?.length ? (
-        <Alert color="orange" title="Plugin configuration problem">
-          <Stack gap="xs">
+        <Alert color='orange' title='Plugin configuration problem'>
+          <Stack gap='xs'>
             {data.config_errors.map((error) => (
-              <Text key={error} size="sm">
+              <Text key={error} size='sm'>
                 {error}
               </Text>
             ))}
@@ -91,33 +88,33 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
       ) : null}
 
       {data.over_limit && data.limit_kg ? (
-        <Alert color="red" title="Licensed net explosive quantity exceeded">
-          This location holds <b>{kg(data.neq_kg)}</b> against a licensed limit of{' '}
-          <b>{kg(data.limit_kg)}</b> — an excess of{' '}
+        <Alert color='red' title='Licensed net explosive quantity exceeded'>
+          This location holds <b>{kg(data.neq_kg)}</b> against a licensed limit
+          of <b>{kg(data.limit_kg)}</b> — an excess of{' '}
           <b>{kg(data.neq_kg - data.limit_kg)}</b>.
         </Alert>
       ) : null}
 
       <SimpleGrid cols={{ base: 1, sm: 2 }}>
-        <Card withBorder padding="md">
+        <Card withBorder padding='md'>
           <Group>
             <RingProgress
               size={140}
               thickness={14}
               sections={[{ value: percent, color }]}
               label={
-                <Stack gap={0} align="center">
-                  <Text fw={700} size="lg">
+                <Stack gap={0} align='center'>
+                  <Text fw={700} size='lg'>
                     {data.neq_kg.toFixed(2)}
                   </Text>
-                  <Text size="xs" c="dimmed">
+                  <Text size='xs' c='dimmed'>
                     kg NEQ
                   </Text>
                 </Stack>
               }
             />
             <Stack gap={4}>
-              <Text size="sm" c="dimmed">
+              <Text size='sm' c='dimmed'>
                 Licensed limit
               </Text>
               <Text fw={600}>
@@ -126,21 +123,21 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
 
               {data.limit_kg ? (
                 <>
-                  <Text size="sm" c="dimmed" mt="xs">
+                  <Text size='sm' c='dimmed' mt='xs'>
                     Utilisation
                   </Text>
-                  <Badge color={color} variant="light">
+                  <Badge color={color} variant='light'>
                     {((data.utilisation ?? 0) * 100).toFixed(1)}%
                   </Badge>
                 </>
               ) : (
-                <Text size="xs" c="dimmed" maw={220}>
+                <Text size='xs' c='dimmed' maw={220}>
                   Set the “{'Maximum Net Explosive Quantity'}” parameter on this
                   location to track it against a licence.
                 </Text>
               )}
 
-              <Text size="sm" c="dimmed" mt="xs">
+              <Text size='sm' c='dimmed' mt='xs'>
                 Gross mass
               </Text>
               <Text>{kg(data.gross_mass_kg)}</Text>
@@ -148,19 +145,19 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
           </Group>
 
           {data.include_sublocations ? (
-            <Text size="xs" c="dimmed" mt="sm">
+            <Text size='xs' c='dimmed' mt='sm'>
               Includes stock held in sublocations.
             </Text>
           ) : null}
         </Card>
 
-        <Card withBorder padding="md">
-          <Title order={5} mb="sm">
+        <Card withBorder padding='md'>
+          <Title order={5} mb='sm'>
             By hazard division
           </Title>
 
           {Object.keys(data.by_division).length === 0 ? (
-            <Text c="dimmed" size="sm">
+            <Text c='dimmed' size='sm'>
               No explosive stock in this location.
             </Text>
           ) : (
@@ -169,9 +166,9 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
                 {Object.entries(data.by_division).map(([division, mass]) => (
                   <Table.Tr key={division}>
                     <Table.Td>
-                      <Badge variant="light">{division}</Badge>
+                      <Badge variant='light'>{division}</Badge>
                     </Table.Td>
-                    <Table.Td ta="right">{kg(mass)}</Table.Td>
+                    <Table.Td ta='right'>{kg(mass)}</Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
@@ -180,13 +177,13 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
         </Card>
       </SimpleGrid>
 
-      <Card withBorder padding="md">
-        <Title order={5} mb="sm">
+      <Card withBorder padding='md'>
+        <Title order={5} mb='sm'>
           Contributing stock
         </Title>
 
         {data.items.length === 0 ? (
-          <Text c="dimmed" size="sm">
+          <Text c='dimmed' size='sm'>
             No explosive stock in this location.
           </Text>
         ) : (
@@ -196,9 +193,9 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
                 <Table.Th>Part</Table.Th>
                 <Table.Th>Class</Table.Th>
                 <Table.Th>UN</Table.Th>
-                <Table.Th ta="right">Qty</Table.Th>
-                <Table.Th ta="right">NEQ / unit</Table.Th>
-                <Table.Th ta="right">NEQ total</Table.Th>
+                <Table.Th ta='right'>Qty</Table.Th>
+                <Table.Th ta='right'>NEQ / unit</Table.Th>
+                <Table.Th ta='right'>NEQ total</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -207,17 +204,17 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
                   <Table.Td>{item.part_name}</Table.Td>
                   <Table.Td>
                     {item.classification_code ? (
-                      <Badge variant="light">{item.classification_code}</Badge>
+                      <Badge variant='light'>{item.classification_code}</Badge>
                     ) : (
-                      <Text c="dimmed" size="sm">
+                      <Text c='dimmed' size='sm'>
                         —
                       </Text>
                     )}
                   </Table.Td>
                   <Table.Td>{item.un_number ?? '—'}</Table.Td>
-                  <Table.Td ta="right">{item.quantity}</Table.Td>
-                  <Table.Td ta="right">{kg(item.neq_per_unit_kg)}</Table.Td>
-                  <Table.Td ta="right">
+                  <Table.Td ta='right'>{item.quantity}</Table.Td>
+                  <Table.Td ta='right'>{kg(item.neq_per_unit_kg)}</Table.Td>
+                  <Table.Td ta='right'>
                     <Text fw={600}>{kg(item.neq_total_kg)}</Text>
                   </Table.Td>
                 </Table.Tr>
@@ -225,10 +222,10 @@ function LocationPanel({ context }: { context: InvenTreePluginContext }) {
             </Table.Tbody>
             <Table.Tfoot>
               <Table.Tr>
-                <Table.Th colSpan={5} ta="right">
+                <Table.Th colSpan={5} ta='right'>
                   Total
                 </Table.Th>
-                <Table.Th ta="right">{kg(data.neq_kg)}</Table.Th>
+                <Table.Th ta='right'>{kg(data.neq_kg)}</Table.Th>
               </Table.Tr>
             </Table.Tfoot>
           </Table>
