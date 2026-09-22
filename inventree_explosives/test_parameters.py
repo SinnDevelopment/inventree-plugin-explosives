@@ -121,3 +121,39 @@ class BootstrapTest(InvenTreeTestCase):
         parameters.ensure_parameter_templates()
 
         self.assertEqual(parameters.config_errors(), [])
+
+    def test_status_not_ready_when_templates_missing(self):
+        status = parameters.status()
+
+        self.assertFalse(status["ready"])
+        self.assertEqual(len(status["errors"]), TEMPLATE_COUNT_EXPECTED)
+        self.assertEqual(len(status["templates"]), TEMPLATE_COUNT_EXPECTED)
+        self.assertTrue(all(not t["present"] for t in status["templates"]))
+        self.assertTrue(all(not t["ok"] for t in status["templates"]))
+
+    def test_status_ready_after_bootstrap(self):
+        parameters.ensure_parameter_templates()
+
+        status = parameters.status()
+
+        self.assertTrue(status["ready"])
+        self.assertEqual(status["errors"], [])
+        self.assertTrue(all(t["present"] and t["ok"] for t in status["templates"]))
+
+    def test_status_flags_a_misconfigured_template(self):
+        """A colliding template declared in the wrong units is not 'ok'."""
+        ParameterTemplate.objects.create(
+            name=TPL_NEQ,
+            units="g",  # plugin requires kg
+            model_type=ContentType.objects.get(app_label="part", model="part"),
+        )
+
+        parameters.ensure_parameter_templates()
+
+        status = parameters.status()
+
+        self.assertFalse(status["ready"])
+
+        neq = next(t for t in status["templates"] if t["name"] == TPL_NEQ)
+        self.assertTrue(neq["present"])
+        self.assertFalse(neq["ok"])

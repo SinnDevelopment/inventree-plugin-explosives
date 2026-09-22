@@ -48,7 +48,7 @@ export default defineConfig({
       // Every entrypoint referenced by plugin_static_file() in core.py must be
       // listed here, or the panel silently fails to render.
       input: [
-        './src/Panel.tsx',
+        './src/PartPanel.tsx',
         './src/LocationPanel.tsx',
         './src/Dashboard.tsx',
         './src/Settings.tsx',

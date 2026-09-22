@@ -72,7 +72,9 @@ function MagazineDashboard({ context }: { context: InvenTreePluginContext }) {
           magazine.utilisation,
           magazine.over_limit
         );
-        const percent = Math.min(100, (magazine.utilisation ?? 0) * 100);
+        const percent = magazine.over_limit
+          ? 100
+          : Math.min(100, (magazine.utilisation ?? 0) * 100);
 
         return (
           <Stack key={magazine.location_id} gap={4}>

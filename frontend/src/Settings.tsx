@@ -1,9 +1,10 @@
 import type { InvenTreePluginContext } from '@inventreedb/ui';
 import { Alert, Button, Code, Group, List, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { urls } from './api';
+import { type BootstrapStatus, fetchJson, urls } from './api';
 
 interface BootstrapResult {
   created: string[];
@@ -14,10 +15,11 @@ interface BootstrapResult {
 /**
  * Plugin settings page.
  *
- * InvenTree gives plugins no activation hook, so if the parameter templates were
- * not created at load time (for instance the plugin first loaded during a
- * migration, before the database was ready) the setup button creates them without
- * requiring a server restart.
+ * The parameter templates this plugin needs are created automatically when it is
+ * enabled, re-checked daily, and can be repaired here. This page loads the
+ * current status on mount and shows a red banner if any template is missing or
+ * misconfigured — so a failed bootstrap is visible here rather than only in the
+ * server log.
  */
 function PluginSettingsDisplay({
   context
@@ -27,6 +29,14 @@ function PluginSettingsDisplay({
   const [result, setResult] = useState<BootstrapResult | null>(null);
   const [running, setRunning] = useState(false);
 
+  const status = useQuery(
+    {
+      queryKey: ['explosives-status'],
+      queryFn: () => fetchJson<BootstrapStatus>(context, urls.bootstrapStatus())
+    },
+    context.queryClient
+  );
+
   const runSetup = async () => {
     setRunning(true);
 
@@ -35,6 +45,9 @@ function PluginSettingsDisplay({
       const data = response.data as BootstrapResult;
 
       setResult(data);
+
+      // Refetch the status so the banner reflects the repair without a reload.
+      status.refetch();
 
       notifications.show({
         title: 'Setup complete',
@@ -54,8 +67,29 @@ function PluginSettingsDisplay({
     }
   };
 
+  const notReady = status.data && !status.data.ready;
+
   return (
     <Stack gap='md'>
+      {notReady ? (
+        <Alert color='red' title='Setup incomplete'>
+          <Stack gap='xs'>
+            <Text size='sm'>
+              One or more parameter templates are missing or misconfigured.
+              Explosive fields and magazine totals will not work until this is
+              fixed. Press <b>Run setup</b> below.
+            </Text>
+            {status.data?.errors.length ? (
+              <List size='sm'>
+                {status.data.errors.map((error) => (
+                  <List.Item key={error}>{error}</List.Item>
+                ))}
+              </List>
+            ) : null}
+          </Stack>
+        </Alert>
+      ) : null}
+
       <Alert color='blue' title='Parameter templates'>
         <Stack gap='xs'>
           <Text size='sm'>
