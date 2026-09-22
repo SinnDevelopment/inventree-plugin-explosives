@@ -64,20 +64,33 @@ Then in InvenTree:
 2. Enable the global settings **`ENABLE_PLUGINS_URL`** (for the API) and
    **`ENABLE_PLUGINS_INTERFACE`** (for the panels). Both are off by default and
    the plugin's UI will not work without them.
-3. The parameter templates are created automatically. If they are missing (e.g.
-   the plugin first loaded during a migration), open the plugin settings and
-   press **Run setup**.
+3. The parameter templates are created automatically when the plugin is enabled,
+   re-checked daily, and can be repaired on demand. The plugin settings page
+   shows a red banner if any template is missing or misconfigured — press
+   **Run setup** there to create them (this works even if automatic creation was
+   skipped, e.g. the plugin first loaded during a migration). Automatic creation
+   on enable also relies on `ENABLE_PLUGINS_EVENTS` and a running background
+   worker; the daily check and the button are the fallbacks when those are off.
 
-Requires InvenTree **1.0.0+** (tested against 1.4.1).
+Requires InvenTree **1.2+** — the generic `common.models.ParameterTemplate` this
+plugin is built on landed in 1.2.0. Tested against 1.4.1.
 
 ## Usage
 
-1. Tick **Explosive** on a part, and set its NEQ, gross mass and UN
-   classification on the Parameters tab.
-2. Set **Maximum Net Explosive Quantity** on the stock location that is your
-   licensed magazine.
-3. The **Explosives / NEQ** panel on that location shows what is held against the
-   licence. The dashboard item lists every licensed magazine by utilisation.
+1. Open a part's **Explosive Data** panel, press **Mark as explosive**, and set
+   its NEQ, gross mass and UN classification directly in the panel (the same
+   values can also be edited on the generic Parameters tab).
+2. Open the **Explosives / NEQ** panel on the stock location that is your
+   licensed magazine and set its **Licensed limit** (staff only; the same value
+   is the `Maximum Net Explosive Quantity` parameter on the location's
+   Parameters tab). Enter `0` for a location where no explosives are permitted;
+   remove the limit to stop tracking the location.
+3. The same panel shows what is held against the licence, and which stock items
+   contribute. The dashboard item lists every licensed magazine by utilisation.
+
+Only stock of a part that is **flagged Explosive** and has an NEQ counts toward
+a magazine. Pressing **Not an explosive** on a part keeps its stored values but
+removes it from every total, the limit check and the exports.
 
 ### Licence limit enforcement
 
@@ -173,6 +186,10 @@ cd frontend && npm install && npm run build
 
 For frontend hot reload, set `DEBUG=True`, `PLUGIN_DEV_SLUG=explosives` and
 `PLUGIN_DEV_HOST=http://localhost:5173`, then run `npm run dev`.
+
+No frontend entrypoint name may be a suffix of another's: InvenTree matches
+panel sources against the vite manifest with an unanchored regex, so `Panel.tsx`
+resolved to `LocationPanel.tsx`. `test_ui` enforces this.
 
 ### Releasing
 

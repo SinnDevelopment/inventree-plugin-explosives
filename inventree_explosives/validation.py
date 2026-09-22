@@ -169,11 +169,11 @@ def validate_mass(data, template) -> None:
 
     try:
         value = convert_physical_value(text, units)
-    except Exception:
+    except Exception as exc:  # pint raises a wide range of types
         raise ValidationError(
             f"'{data}' is not a valid mass. Enter a number, optionally with a "
             f"unit (for example '2.5', '2.5 kg' or '500 g')."
-        )
+        ) from exc
 
     if value is not None and float(value) < 0:
         raise ValidationError("Mass values cannot be negative.")

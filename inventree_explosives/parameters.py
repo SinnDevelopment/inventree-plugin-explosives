@@ -1,12 +1,14 @@
 """Bootstrap and lookup of the ParameterTemplates this plugin depends on.
 
-InvenTree gives plugins no activation hook, so there is nowhere natural to run
-"create my templates once". Instead `ensure_parameter_templates()` is idempotent
-and is called from three places (see core.py):
+InvenTree gives plugins no per-instance activation method, so
+`ensure_parameter_templates()` is idempotent and is called from four places
+(see core.py), any one of which is enough:
 
-  1. plugin __init__      - the normal path, on every registry load
-  2. a daily scheduled task - self-heals if (1) ran before the DB was ready
-  3. POST api/bootstrap/  - an explicit repair button for an admin
+  1. the plugin_activated event - the reliable path, fired when the plugin is
+     enabled (needs ENABLE_PLUGINS_EVENTS and a worker)
+  2. plugin __init__          - best-effort, on registry load of an active plugin
+  3. a daily scheduled task   - self-heals if the others ran before the DB was ready
+  4. POST api/bootstrap/      - an explicit repair button for an admin
 
 Two constraints shape this module:
 
@@ -125,13 +127,13 @@ def _database_ready() -> bool:
     not exist yet.
     """
     try:
-        import InvenTree.ready as ready
+        from InvenTree import ready
 
         return (
             ready.canAppAccessDatabase(allow_test=True, allow_shell=True)
             and not ready.isImportingData()
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - readiness probe: any failure means "not ready"
         return False
 
 
@@ -149,7 +151,7 @@ def ensure_parameter_templates() -> dict:
 
     try:
         from common.models import ParameterTemplate
-    except Exception as exc:  # pragma: no cover - only on a broken install
+    except Exception as exc:  # noqa: BLE001 - pragma: no cover, only on a broken install
         result["errors"].append(f"cannot import ParameterTemplate: {exc}")
         return result
 
@@ -224,7 +226,7 @@ def get_template(name: str):
         from common.models import ParameterTemplate
 
         return ParameterTemplate.objects.filter(name__iexact=name).first()
-    except Exception:
+    except Exception:  # noqa: BLE001 - lookup runs before the database may exist
         return None
 
 
@@ -254,6 +256,70 @@ def get_parameter_numeric(instance, template_name: str) -> float | None:
     return float(parameter.data_numeric)
 
 
+def set_parameter_value(instance, template_name: str, value, validate: bool = True):
+    """Create or update a parameter value on a Part or StockLocation.
+
+    Upserts on the (template, model_type, model_id) unique key, so calling it
+    twice does not create a duplicate row.
+
+    full_clean() is called when validating because InvenTree runs the plugin
+    `validate_parameter` hook (and choice/unit checks) from Parameter.clean(), not
+    from save() — a bare save() would bypass validation entirely. save() then
+    recomputes data_numeric and coerces checkbox values.
+
+    Returns the Parameter row, or None if the template does not exist (the caller
+    surfaces missing-template state via config_errors()).
+    """
+    from common.models import Parameter
+    from django.contrib.contenttypes.models import ContentType
+
+    template = get_template(template_name)
+
+    if template is None:
+        return None
+
+    parameter, _ = Parameter.objects.get_or_create(
+        template=template,
+        model_type=ContentType.objects.get_for_model(instance),
+        model_id=instance.pk,
+    )
+    parameter.data = str(value)
+
+    if validate:
+        parameter.full_clean()
+
+    parameter.save()
+
+    return parameter
+
+
+def set_explosive_flag(part, on: bool):
+    """Mark (or unmark) a part as a regulated explosive."""
+    return set_parameter_value(part, TPL_EXPLOSIVE, bool(on))
+
+
+def clear_parameter_value(instance, template_name: str) -> None:
+    """Remove a parameter from a Part or StockLocation, if present.
+
+    Used to clear a field: storing an empty string on a choices parameter would
+    fail its clean() check, and an absent row is the correct "unset" state (a
+    missing NEQ, for instance, is what part_issues() warns about).
+    """
+    from common.models import Parameter
+    from django.contrib.contenttypes.models import ContentType
+
+    template = get_template(template_name)
+
+    if template is None:
+        return
+
+    Parameter.objects.filter(
+        template=template,
+        model_type=ContentType.objects.get_for_model(instance),
+        model_id=instance.pk,
+    ).delete()
+
+
 def config_errors() -> list[str]:
     """Return current configuration problems, for display in the UI panels.
 
@@ -277,3 +343,29 @@ def config_errors() -> list[str]:
         errors.extend(_check_template(template, name, model, fields))
 
     return errors
+
+
+def status() -> dict:
+    """A structured health report for the plugin settings page.
+
+    Returns 'ready' (True only when every template exists and is fit for use),
+    the same human-readable 'errors' config_errors() produces, and a per-template
+    breakdown so the settings page can show exactly what is missing or wrong
+    without an admin having to read the server log.
+    """
+    templates = []
+
+    for name, model, fields in TEMPLATE_SPECS:
+        template = get_template(name)
+        present = template is not None
+        ok = present and not _check_template(template, name, model, fields)
+
+        templates.append({"name": name, "present": present, "ok": ok})
+
+    errors = config_errors()
+
+    return {
+        "ready": not errors and all(t["ok"] for t in templates),
+        "errors": errors,
+        "templates": templates,
+    }

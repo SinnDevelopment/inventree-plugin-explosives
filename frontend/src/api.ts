@@ -42,6 +42,39 @@ export interface PartExplosive {
   un_number: string | null;
   proper_shipping_name: string | null;
   issues: string[];
+  /** Vocabularies for the edit form's selects. */
+  divisions?: string[];
+  compatibility_groups?: string[];
+}
+
+/** Editable explosive properties of a part (PATCH body). All fields optional. */
+export interface PartExplosiveUpdate {
+  is_explosive?: boolean;
+  neq_per_unit_kg?: string;
+  gross_mass_per_unit_kg?: string;
+  division?: string;
+  compatibility_group?: string;
+  un_number?: string;
+  proper_shipping_name?: string;
+}
+
+/** PATCH body for a location's licensed limit. Blank removes it. */
+export interface LocationLimitUpdate {
+  limit_kg: string;
+}
+
+/** Presence and fitness of one parameter template. */
+export interface TemplateStatus {
+  name: string;
+  present: boolean;
+  ok: boolean;
+}
+
+/** Read-only health of the plugin's parameter templates. */
+export interface BootstrapStatus {
+  ready: boolean;
+  errors: string[];
+  templates: TemplateStatus[];
 }
 
 const BASE = '/plugin/explosives/api';
@@ -50,7 +83,9 @@ export const urls = {
   locationNEQ: (id: number | string) => `${BASE}/location/${id}/neq/`,
   locationSummary: () => `${BASE}/location/summary/`,
   part: (id: number | string) => `${BASE}/part/${id}/`,
-  bootstrap: () => `${BASE}/bootstrap/`
+  bootstrap: () => `${BASE}/bootstrap/`,
+  // Same endpoint as bootstrap(); GET reports status, POST runs setup.
+  bootstrapStatus: () => `${BASE}/bootstrap/`
 };
 
 /**
@@ -66,6 +101,45 @@ export async function fetchJson<T>(
 ): Promise<T> {
   const response = await context.api.get(url);
   return response.data as T;
+}
+
+/** PATCH a part's explosive properties. Returns the updated properties. */
+export async function patchPart(
+  context: InvenTreePluginContext,
+  partId: number | string,
+  payload: PartExplosiveUpdate
+): Promise<PartExplosive> {
+  const response = await context.api.patch(urls.part(partId), payload);
+  return response.data as PartExplosive;
+}
+
+/** PATCH a location's licensed NEQ limit. */
+export async function patchLocationLimit(
+  context: InvenTreePluginContext,
+  locationId: number | string,
+  payload: LocationLimitUpdate
+): Promise<LocationNEQ> {
+  const response = await context.api.patch(
+    urls.locationNEQ(locationId),
+    payload
+  );
+  return response.data as LocationNEQ;
+}
+
+/** Flatten a DRF error body (dict of field->messages, or a list) into strings. */
+export function errorMessages(detail: unknown): string[] {
+  if (!detail) {
+    return ['Save failed.'];
+  }
+  if (Array.isArray(detail)) {
+    return detail.map(String);
+  }
+  if (typeof detail === 'object') {
+    return Object.values(detail as Record<string, unknown>)
+      .flat()
+      .map(String);
+  }
+  return [String(detail)];
 }
 
 /** Format a mass in kg for display. */

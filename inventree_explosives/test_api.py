@@ -4,10 +4,18 @@ These go through the real URL layer, so they also prove that UrlsMixin actually
 mounted the routes.
 """
 
+import json
+
 from django.urls import reverse
 
-from . import exports
-from .constants import TPL_COMPAT, TPL_DIVISION, TPL_GROSS_MASS, TPL_MAX_NEQ, TPL_UN_NUMBER
+from . import exports, neq, parameters
+from .constants import (
+    TPL_COMPAT,
+    TPL_DIVISION,
+    TPL_GROSS_MASS,
+    TPL_MAX_NEQ,
+    TPL_UN_NUMBER,
+)
 from .test_neq import ExplosivesTestCase
 
 
@@ -76,6 +84,80 @@ class LocationAPITest(ExplosivesTestCase):
         response = self.client.get(self.url())
 
         self.assertIn(response.status_code, [401, 403])
+
+    def patch_limit(self, value):
+        return self.client.patch(
+            self.url(),
+            data=json.dumps({"limit_kg": value}),
+            content_type="application/json",
+        )
+
+    def test_patch_limit_sets_the_licence(self):
+        self.user.is_staff = True
+        self.user.save()
+
+        response = self.patch_limit("75000 g")  # unit-bearing input, stored in kg
+
+        self.assertEqual(response.status_code, 200)
+        self.assertAlmostEqual(response.json()["limit_kg"], 75.0, places=6)
+        self.assertAlmostEqual(neq.location_limit(self.magazine), 75.0, places=6)
+
+    def test_patch_zero_limit_means_no_explosives_permitted(self):
+        self.user.is_staff = True
+        self.user.save()
+        self.add_stock(self.part, 1)
+
+        data = self.patch_limit("0").json()
+
+        self.assertEqual(data["limit_kg"], 0.0)
+        self.assertTrue(data["over_limit"])
+
+    def test_patch_blank_limit_removes_the_licence(self):
+        self.user.is_staff = True
+        self.user.save()
+
+        response = self.patch_limit("")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["limit_kg"])
+        self.assertIsNone(neq.location_limit(self.magazine))
+        self.assertEqual(
+            self.client.get(reverse("plugin:explosives:location-summary")).json(), []
+        )
+
+    def test_patch_unparseable_limit_is_rejected(self):
+        self.user.is_staff = True
+        self.user.save()
+
+        response = self.patch_limit("about fifty")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("limit_kg", response.json())
+        self.assertAlmostEqual(neq.location_limit(self.magazine), 50.0, places=6)
+
+    def test_patch_limit_requires_staff(self):
+        self.user.is_staff = False
+        self.user.is_superuser = False
+        self.user.save()
+
+        response = self.patch_limit("75")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertAlmostEqual(neq.location_limit(self.magazine), 50.0, places=6)
+
+    def test_patch_limit_with_template_missing_is_an_error_not_a_silent_noop(self):
+        from common.models import ParameterTemplate
+
+        self.user.is_staff = True
+        self.user.save()
+
+        ParameterTemplate.objects.filter(name__iexact=TPL_MAX_NEQ).delete()
+        self.assertIsNone(parameters.get_template(TPL_MAX_NEQ))
+
+        response = self.patch_limit("75")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("limit_kg", response.json())
 
     def test_location_summary_lists_licensed_magazines(self):
         self.add_stock(self.part, 120)  # over limit
@@ -228,9 +310,9 @@ class ExportTest(ExplosivesTestCase):
         self.assertTrue(row["explosive_over_limit"])
 
     def test_supports_export_only_for_relevant_models(self):
+        from order.models import PurchaseOrder
         from part.models import Part
         from stock.models import StockItem, StockLocation
-        from order.models import PurchaseOrder
 
         for model in [Part, StockItem, StockLocation]:
             self.assertTrue(self.plugin.supports_export(model, self.user))

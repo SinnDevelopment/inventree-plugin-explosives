@@ -13,7 +13,7 @@ not what is available to sell. See present_stock_filter().
 from django.db.models import F, FloatField, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Cast, Coalesce
 
-from .constants import TPL_DIVISION, TPL_GROSS_MASS, TPL_MAX_NEQ, TPL_NEQ
+from .constants import TPL_DIVISION, TPL_EXPLOSIVE, TPL_GROSS_MASS, TPL_MAX_NEQ, TPL_NEQ
 from .hazard import classification_code
 from .parameters import get_parameter_numeric, get_template
 
@@ -56,8 +56,8 @@ def _part_parameter_subquery(template, numeric: bool = True):
     is multi-valued, so Django may emit a second JOIN and multiply rows, double
     counting the NEQ. The subquery yields exactly one row per part, or NULL.
     """
-    from django.contrib.contenttypes.models import ContentType
     from common.models import Parameter
+    from django.contrib.contenttypes.models import ContentType
     from part.models import Part
 
     if template is None:
@@ -78,15 +78,16 @@ def _part_parameter_subquery(template, numeric: bool = True):
 def neq_annotated_items(locations=None, count_all_present: bool = True):
     """StockItems annotated with neq_per_unit, neq_total and gross_total (all kg).
 
-    Items whose part has no NEQ value are excluded: they contribute nothing to
-    the total. Note this means a *malformed* NEQ (which leaves data_numeric NULL)
-    silently under-counts, which is why validation refuses to store one.
+    Only parts flagged Explosive with an NEQ value count, matching the limit
+    check and the exports. A malformed NEQ (data_numeric NULL) silently
+    under-counts, which is why validation refuses to store one.
     """
     from stock.models import StockItem
 
     neq_template = get_template(TPL_NEQ)
+    explosive_template = get_template(TPL_EXPLOSIVE)
 
-    if neq_template is None:
+    if neq_template is None or explosive_template is None:
         # Not bootstrapped yet. config_errors() surfaces the reason in the UI.
         return StockItem.objects.none()
 
@@ -96,8 +97,9 @@ def neq_annotated_items(locations=None, count_all_present: bool = True):
         queryset = queryset.filter(location__in=locations)
 
     queryset = queryset.annotate(
+        is_explosive=_part_parameter_subquery(explosive_template),  # checkbox: 1 / 0
         neq_per_unit=_part_parameter_subquery(neq_template),
-    ).filter(neq_per_unit__isnull=False)
+    ).filter(is_explosive=1, neq_per_unit__isnull=False)
 
     # StockItem.quantity is a Decimal and data_numeric is a Float; multiplying
     # them directly raises on PostgreSQL.
@@ -192,8 +194,8 @@ def location_summary(
 
 
 def _item_dict(item) -> dict:
-    from .parameters import get_parameter_value
     from .constants import TPL_COMPAT, TPL_UN_NUMBER
+    from .parameters import get_parameter_value
 
     division = getattr(item, "division", None)
     group = get_parameter_value(item.part, TPL_COMPAT)

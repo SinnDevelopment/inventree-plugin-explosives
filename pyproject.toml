@@ -46,3 +46,10 @@ include-package-data = true
 [tool.ruff]
 exclude = [".git", "__pycache__", ".venv", "venv", "frontend"]
 src = ["inventree_explosives"]
+
+[tool.ruff.lint]
+# The rule set is declared here rather than inherited from whatever ruff's
+# defaults happen to be: ruff widens its defaults between releases, and an
+# inherited set turns a green branch red with no code change. Adding a rule is
+# then a deliberate commit, and CI can keep installing the current ruff.
+select = ["E4", "E7", "E9", "F", "I", "B", "C4", "BLE", "SIM", "UP", "RUF", "PLR0402"]

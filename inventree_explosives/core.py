@@ -10,9 +10,9 @@ parameters.py (template bootstrap).
 """
 
 import logging
+from typing import ClassVar
 
 from django.core.exceptions import ValidationError
-
 from plugin import InvenTreePlugin
 from plugin.mixins import (
     DataExportMixin,
@@ -25,9 +25,17 @@ from plugin.mixins import (
     ValidationMixin,
 )
 
-from . import PLUGIN_VERSION
-from . import exports, neq, parameters, validation
-from .constants import TPL_COMPAT, TPL_DIVISION, TPL_GROSS_MASS, TPL_NEQ, TPL_PSN, TPL_UN_NUMBER
+from . import PLUGIN_VERSION, exports, neq, parameters, validation
+from .constants import (
+    COMPATIBILITY_GROUPS,
+    DIVISIONS,
+    TPL_COMPAT,
+    TPL_DIVISION,
+    TPL_GROSS_MASS,
+    TPL_NEQ,
+    TPL_PSN,
+    TPL_UN_NUMBER,
+)
 from .hazard import classification_code
 
 logger = logging.getLogger("inventree")
@@ -47,6 +55,14 @@ WATCHED_EVENTS = [
     "stock_stockitem.created",
     "stock_stockitem.deleted",
 ]
+
+# Fired by PluginConfig.activate() when any plugin is enabled/disabled, with
+# kwargs slug=<plugin key>, active=<bool>. This is the closest thing InvenTree
+# has to an "on enable" hook, so it is our primary template-bootstrap trigger —
+# see PluginEvents.PLUGIN_ACTIVATED. It only fires when the ENABLE_PLUGINS_EVENTS
+# global is on and a worker is running, so the daily schedule and the settings
+# "Run setup" button remain as fallbacks.
+EVENT_PLUGIN_ACTIVATED = "plugin_activated"
 
 
 class ExplosivesPlugin(
@@ -75,12 +91,14 @@ class ExplosivesPlugin(
     WEBSITE = "https://github.com/sinndevelopment/inventree-plugin-explosives"
     LICENSE = "MIT"
 
-    # The generic Parameter model this plugin is built on landed in 1.0.
-    MIN_VERSION = "1.0.0"
+    # The generic Parameter/ParameterTemplate model this plugin is built on
+    # landed in 1.2.0 (PR #10699, which removed the old PartParameter models).
+    # A lower floor makes the plugin import-fail on load.
+    MIN_VERSION = "1.2.0"
 
     ADMIN_SOURCE = "Settings.js:RenderPluginSettings"
 
-    SETTINGS = {
+    SETTINGS: ClassVar[dict] = {
         "LIMIT_ACTION": {
             "name": "Licence limit action",
             "description": (
@@ -129,14 +147,15 @@ class ExplosivesPlugin(
         "EXPLOSIVE_CATEGORIES": {
             "name": "Explosive part categories",
             "description": (
-                "Comma-separated PartCategory IDs whose parts are expected to be "
-                "flagged as explosive. Used for integrity reporting only."
+                "Comma-separated PartCategory IDs whose parts (and sub-category "
+                "parts) may hold explosive data. Controls which parts show the "
+                "Explosive Data panel. Leave blank to show it on every part."
             ),
             "default": "",
         },
     }
 
-    SCHEDULED_TASKS = {
+    SCHEDULED_TASKS: ClassVar[dict] = {
         "ensure_templates": {
             "func": "ensure_templates",
             "schedule": "D",
@@ -146,15 +165,16 @@ class ExplosivesPlugin(
     def __init__(self, *args, **kwargs):
         """Bootstrap parameter templates on registry load.
 
-        InvenTree has no plugin activation hook, so this is the earliest place we
-        can create the templates. It is a no-op when the database is not ready
-        (migrations, imports), which is why the scheduled task and the manual
-        repair endpoint also exist.
+        This is a best-effort early attempt. It only runs when the registry
+        constructs the instance (a plugin that is active, or under test), and is a
+        no-op when the database is not ready (migrations, imports). The reliable
+        trigger is the plugin_activated event (see process_event); the daily
+        scheduled task and the manual repair endpoint are the other fallbacks.
         """
         super().__init__(*args, **kwargs)
 
         try:
-            parameters.ensure_parameter_templates()
+            self._run_bootstrap("load")
         except Exception:
             # A plugin that raises on load takes the whole registry down.
             logger.exception("explosives: parameter template bootstrap failed")
@@ -187,17 +207,37 @@ class ExplosivesPlugin(
             count_all_present=self._count_all_present(),
         )
 
-    # --- ScheduleMixin -------------------------------------------------------
+    def _run_bootstrap(self, trigger: str) -> dict:
+        """Ensure the parameter templates exist, logging the outcome loudly.
 
-    def ensure_templates(self):
-        """Daily self-heal, in case bootstrap ran before the database was ready."""
+        Shared by every bootstrap path (load, plugin_activated event, daily
+        schedule). Created templates are logged at INFO; any errors — such as a
+        colliding template declared in the wrong units — are logged at WARNING so
+        they are noticed rather than swallowed into a discarded return dict.
+        """
         result = parameters.ensure_parameter_templates()
 
         if result["created"]:
             logger.info(
-                "explosives: created missing parameter templates: %s",
+                "explosives: created missing parameter templates (%s): %s",
+                trigger,
                 ", ".join(result["created"]),
             )
+
+        if result["errors"]:
+            logger.warning(
+                "explosives: parameter template problems (%s): %s",
+                trigger,
+                "; ".join(result["errors"]),
+            )
+
+        return result
+
+    # --- ScheduleMixin -------------------------------------------------------
+
+    def ensure_templates(self):
+        """Daily self-heal, in case bootstrap ran before the database was ready."""
+        self._run_bootstrap("schedule")
 
     # --- ValidationMixin -----------------------------------------------------
 
@@ -254,9 +294,23 @@ class ExplosivesPlugin(
     # --- EventMixin ----------------------------------------------------------
 
     def wants_process_event(self, event: str) -> bool:
-        return event in WATCHED_EVENTS
+        return event in WATCHED_EVENTS or event == EVENT_PLUGIN_ACTIVATED
 
     def process_event(self, event: str, *args, **kwargs):
+        """React to the events this plugin cares about.
+
+        plugin_activated is our reliable template-bootstrap trigger; the stock
+        events drive the after-the-fact magazine audit.
+        """
+        if event == EVENT_PLUGIN_ACTIVATED:
+            # Fires for every plugin's toggle, so act only on our own activation.
+            if kwargs.get("slug") == self.SLUG and kwargs.get("active"):
+                self._run_bootstrap("activation")
+            return
+
+        self._audit_magazines()
+
+    def _audit_magazines(self):
         """Audit affected magazines after the fact.
 
         Validation prevents breaches on the normal save path; this notices the
@@ -363,13 +417,13 @@ class ExplosivesPlugin(
                 }
             )
 
-        if target_model == "part" and target_id and self._is_explosive_part_id(target_id):
+        if target_model == "part" and target_id and self._should_show_part_panel(target_id):
             panels.append(
                 {
                     "key": "explosives-part",
                     "title": "Explosive Data",
                     "icon": "ti:alert-triangle:outline",
-                    "source": self.plugin_static_file("Panel.js:RenderPartPanel"),
+                    "source": self.plugin_static_file("PartPanel.js:RenderPartPanel"),
                     "context": {
                         "part_id": target_id,
                         "settings": self.get_settings_dict(),
@@ -392,12 +446,56 @@ class ExplosivesPlugin(
             }
         ]
 
-    def _is_explosive_part_id(self, part_id) -> bool:
+    def _explosive_category_ids(self) -> set[int]:
+        """Parse the comma-separated EXPLOSIVE_CATEGORIES setting into IDs.
+
+        Tolerates whitespace and stray non-numeric entries rather than raising in
+        the middle of building a panel list.
+        """
+        raw = self.get_setting("EXPLOSIVE_CATEGORIES") or ""
+
+        ids = set()
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if chunk.isdigit():
+                ids.add(int(chunk))
+
+        return ids
+
+    def _should_show_part_panel(self, part_id) -> bool:
+        """Whether a part gets the Explosive Data panel.
+
+        Shown for a part that is already flagged explosive, OR whose category (or
+        an ancestor of it) is configured in EXPLOSIVE_CATEGORIES. When no
+        categories are configured the panel shows on every part, so the feature is
+        discoverable out of the box — mirroring the location panel, which is shown
+        on every location so a limit can be set in the first place.
+        """
         from part.models import Part
 
         part = Part.objects.filter(pk=part_id).first()
 
-        return bool(part and validation.is_explosive_part(part))
+        if part is None:
+            return False
+
+        if validation.is_explosive_part(part):
+            return True
+
+        category_ids = self._explosive_category_ids()
+
+        if not category_ids:
+            return True
+
+        if part.category_id is None:
+            return False
+
+        # Match the part's category or any ancestor of it, so configuring a parent
+        # category covers its sub-categories (PartCategory is an MPTT tree).
+        ancestors = part.category.get_ancestors(include_self=True).values_list(
+            "pk", flat=True
+        )
+
+        return any(pk in category_ids for pk in ancestors)
 
     # --- ReportMixin ---------------------------------------------------------
 
@@ -443,6 +541,8 @@ class ExplosivesPlugin(
                 require_neq=bool(self.get_setting("REQUIRE_NEQ")),
                 enforce_combo=bool(self.get_setting("ENFORCE_COMPAT_GROUP")),
             ),
+            "divisions": list(DIVISIONS),
+            "compatibility_groups": list(COMPATIBILITY_GROUPS),
         }
 
     def stock_item_context(self, stock_item) -> dict:
@@ -489,8 +589,10 @@ class ExplosivesPlugin(
         include_sublocations = self._include_sublocations()
         count_all_present = self._count_all_present()
 
-        # Serializer rows come back in queryset order.
-        for row, instance in zip(rows, queryset):
+        # Serializer rows come back in queryset order. strict=True: a length
+        # mismatch would silently misalign every row, and these are compliance
+        # numbers — fail loudly rather than export the wrong ones.
+        for row, instance in zip(rows, queryset, strict=True):
             try:
                 row.update(
                     exports.row_for(

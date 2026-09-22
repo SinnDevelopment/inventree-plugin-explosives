@@ -5,7 +5,6 @@ failure it prevents.
 """
 
 from django.core.exceptions import ValidationError
-
 from stock.models import StockItem, StockLocation
 from stock.status_codes import StockStatus
 

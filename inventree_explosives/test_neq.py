@@ -12,7 +12,6 @@ every number the plugin produces is wrong.
 
 
 from InvenTree.unit_test import InvenTreeTestCase
-
 from part.models import Part, PartCategory
 from stock.models import StockItem, StockLocation
 from stock.status_codes import StockStatus
@@ -207,6 +206,18 @@ class LocationAggregationTest(ExplosivesTestCase):
 
     def test_no_stock_is_zero_not_none(self):
         self.assertEqual(neq.location_neq(self.magazine), 0.0)
+
+    def test_part_no_longer_flagged_explosive_contributes_nothing(self):
+        """"Not an explosive" clears the flag but keeps the NEQ row."""
+        part = self.make_explosive_part(neq_kg="0.5")
+        self.add_stock(part, 10)
+
+        self.assertAlmostEqual(neq.location_neq(self.magazine), 5.0, places=6)
+
+        parameters.set_explosive_flag(part, False)
+
+        self.assertEqual(neq.location_neq(self.magazine), 0.0)
+        self.assertEqual(neq.location_summary(self.magazine)["items"], [])
 
     def test_single_join_no_double_counting(self):
         """A part carrying several parameters must not multiply its own rows.

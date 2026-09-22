@@ -5,7 +5,6 @@ This module tests that those rules are wired in to InvenTree's validation hooks.
 """
 
 from django.core.exceptions import ValidationError
-
 from stock.models import StockItem, StockLocation
 
 from . import neq, validation
@@ -164,9 +163,8 @@ class ParameterHookTest(ExplosivesTestCase):
         part = self.make_explosive_part(neq_kg=None)
 
         for bad in ["approx 5", "five kg", "lots"]:
-            with self.subTest(value=bad):
-                with self.assertRaises(ValidationError):
-                    self.set_parameter(part, TPL_NEQ, bad)
+            with self.subTest(value=bad), self.assertRaises(ValidationError):
+                self.set_parameter(part, TPL_NEQ, bad)
 
     def test_whitespace_neq_is_a_field_error_not_a_crash(self):
         """A whitespace-only value must surface as a validation error on the
