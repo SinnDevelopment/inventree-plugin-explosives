@@ -127,13 +127,13 @@ def _database_ready() -> bool:
     not exist yet.
     """
     try:
-        import InvenTree.ready as ready
+        from InvenTree import ready
 
         return (
             ready.canAppAccessDatabase(allow_test=True, allow_shell=True)
             and not ready.isImportingData()
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - readiness probe: any failure means "not ready"
         return False
 
 
@@ -151,7 +151,7 @@ def ensure_parameter_templates() -> dict:
 
     try:
         from common.models import ParameterTemplate
-    except Exception as exc:  # pragma: no cover - only on a broken install
+    except Exception as exc:  # noqa: BLE001 - pragma: no cover, only on a broken install
         result["errors"].append(f"cannot import ParameterTemplate: {exc}")
         return result
 
@@ -226,7 +226,7 @@ def get_template(name: str):
         from common.models import ParameterTemplate
 
         return ParameterTemplate.objects.filter(name__iexact=name).first()
-    except Exception:
+    except Exception:  # noqa: BLE001 - lookup runs before the database may exist
         return None
 
 
@@ -270,8 +270,8 @@ def set_parameter_value(instance, template_name: str, value, validate: bool = Tr
     Returns the Parameter row, or None if the template does not exist (the caller
     surfaces missing-template state via config_errors()).
     """
-    from django.contrib.contenttypes.models import ContentType
     from common.models import Parameter
+    from django.contrib.contenttypes.models import ContentType
 
     template = get_template(template_name)
 
@@ -305,8 +305,8 @@ def clear_parameter_value(instance, template_name: str) -> None:
     fail its clean() check, and an absent row is the correct "unset" state (a
     missing NEQ, for instance, is what part_issues() warns about).
     """
-    from django.contrib.contenttypes.models import ContentType
     from common.models import Parameter
+    from django.contrib.contenttypes.models import ContentType
 
     template = get_template(template_name)
 

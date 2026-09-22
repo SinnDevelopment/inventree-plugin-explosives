@@ -9,7 +9,13 @@ import json
 from django.urls import reverse
 
 from . import exports, neq, parameters
-from .constants import TPL_COMPAT, TPL_DIVISION, TPL_GROSS_MASS, TPL_MAX_NEQ, TPL_UN_NUMBER
+from .constants import (
+    TPL_COMPAT,
+    TPL_DIVISION,
+    TPL_GROSS_MASS,
+    TPL_MAX_NEQ,
+    TPL_UN_NUMBER,
+)
 from .test_neq import ExplosivesTestCase
 
 
@@ -304,9 +310,9 @@ class ExportTest(ExplosivesTestCase):
         self.assertTrue(row["explosive_over_limit"])
 
     def test_supports_export_only_for_relevant_models(self):
+        from order.models import PurchaseOrder
         from part.models import Part
         from stock.models import StockItem, StockLocation
-        from order.models import PurchaseOrder
 
         for model in [Part, StockItem, StockLocation]:
             self.assertTrue(self.plugin.supports_export(model, self.user))

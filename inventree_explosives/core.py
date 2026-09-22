@@ -10,9 +10,9 @@ parameters.py (template bootstrap).
 """
 
 import logging
+from typing import ClassVar
 
 from django.core.exceptions import ValidationError
-
 from plugin import InvenTreePlugin
 from plugin.mixins import (
     DataExportMixin,
@@ -25,8 +25,7 @@ from plugin.mixins import (
     ValidationMixin,
 )
 
-from . import PLUGIN_VERSION
-from . import exports, neq, parameters, validation
+from . import PLUGIN_VERSION, exports, neq, parameters, validation
 from .constants import (
     COMPATIBILITY_GROUPS,
     DIVISIONS,
@@ -99,7 +98,7 @@ class ExplosivesPlugin(
 
     ADMIN_SOURCE = "Settings.js:RenderPluginSettings"
 
-    SETTINGS = {
+    SETTINGS: ClassVar[dict] = {
         "LIMIT_ACTION": {
             "name": "Licence limit action",
             "description": (
@@ -156,7 +155,7 @@ class ExplosivesPlugin(
         },
     }
 
-    SCHEDULED_TASKS = {
+    SCHEDULED_TASKS: ClassVar[dict] = {
         "ensure_templates": {
             "func": "ensure_templates",
             "schedule": "D",
@@ -590,8 +589,10 @@ class ExplosivesPlugin(
         include_sublocations = self._include_sublocations()
         count_all_present = self._count_all_present()
 
-        # Serializer rows come back in queryset order.
-        for row, instance in zip(rows, queryset):
+        # Serializer rows come back in queryset order. strict=True: a length
+        # mismatch would silently misalign every row, and these are compliance
+        # numbers — fail loudly rather than export the wrong ones.
+        for row, instance in zip(rows, queryset, strict=True):
             try:
                 row.update(
                     exports.row_for(

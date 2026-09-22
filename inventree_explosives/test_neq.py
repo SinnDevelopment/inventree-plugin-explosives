@@ -12,7 +12,6 @@ every number the plugin produces is wrong.
 
 
 from InvenTree.unit_test import InvenTreeTestCase
-
 from part.models import Part, PartCategory
 from stock.models import StockItem, StockLocation
 from stock.status_codes import StockStatus

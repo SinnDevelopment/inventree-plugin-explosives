@@ -5,10 +5,11 @@ ENABLE_PLUGINS_URL setting; if it is off the frontend panels will report that
 rather than failing silently.
 """
 
+from typing import ClassVar
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-
 from rest_framework import permissions
 from rest_framework import serializers as drf_serializers
 from rest_framework.response import Response
@@ -71,7 +72,7 @@ class PluginView(APIView):
     """
 
     plugin = None
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes: ClassVar[list] = [permissions.IsAuthenticated]
 
 
 class AdminWritesView(PluginView):

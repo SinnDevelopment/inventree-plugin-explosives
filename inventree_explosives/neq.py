@@ -56,8 +56,8 @@ def _part_parameter_subquery(template, numeric: bool = True):
     is multi-valued, so Django may emit a second JOIN and multiply rows, double
     counting the NEQ. The subquery yields exactly one row per part, or NULL.
     """
-    from django.contrib.contenttypes.models import ContentType
     from common.models import Parameter
+    from django.contrib.contenttypes.models import ContentType
     from part.models import Part
 
     if template is None:
@@ -194,8 +194,8 @@ def location_summary(
 
 
 def _item_dict(item) -> dict:
-    from .parameters import get_parameter_value
     from .constants import TPL_COMPAT, TPL_UN_NUMBER
+    from .parameters import get_parameter_value
 
     division = getattr(item, "division", None)
     group = get_parameter_value(item.part, TPL_COMPAT)

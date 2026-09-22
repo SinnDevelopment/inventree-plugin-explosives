@@ -1,10 +1,8 @@
 """Tests for the ParameterTemplate bootstrap."""
 
+from common.models import ParameterTemplate
 from django.contrib.contenttypes.models import ContentType
 from django.db.models.signals import post_save
-
-from common.models import ParameterTemplate
-
 from InvenTree.unit_test import InvenTreeTestCase
 
 from . import parameters

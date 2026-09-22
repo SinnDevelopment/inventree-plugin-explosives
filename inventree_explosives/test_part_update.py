@@ -5,12 +5,10 @@ needed. This is the write path that lets a user mark a part explosive and set it
 fields from the plugin's own panel, rather than hand-adding parameters.
 """
 
-from django.contrib.auth import get_user_model
-
-from rest_framework.test import APIRequestFactory, force_authenticate
-
 from common.models import Parameter
+from django.contrib.auth import get_user_model
 from part.models import Part
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from . import parameters, validation
 from .constants import TPL_COMPAT, TPL_DIVISION, TPL_NEQ, TPL_UN_NUMBER
