@@ -30,9 +30,12 @@ LEGAL_COMBINATIONS: frozenset[tuple[str, str]] = frozenset(
     for group in groups
 )
 
-assert len(LEGAL_COMBINATIONS) == 35, (
-    f"Expected 35 UN Class 1 classification codes, got {len(LEGAL_COMBINATIONS)}"
-)
+# Not an assert: `python -O` strips those, and this is the guard on the table
+# the whole classification rule rests on.
+if len(LEGAL_COMBINATIONS) != 35:
+    raise ValueError(
+        f"Expected 35 UN Class 1 classification codes, got {len(LEGAL_COMBINATIONS)}"
+    )
 
 UN_NUMBER_RE = re.compile(r"^UN\d{4}$")
 

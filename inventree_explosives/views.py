@@ -75,19 +75,61 @@ class PluginView(APIView):
     permission_classes: ClassVar[list] = [permissions.IsAuthenticated]
 
 
+class HasExplosivesWritePermission(permissions.BasePermission):
+    """Staff, or a user holding the InvenTree role this object belongs to.
+
+    Gating writes on is_staff alone ignored InvenTree's own role system, so a
+    stock manager who may edit the location could not set its licensed limit,
+    while any staff account could regardless of roles. Staff is kept as well:
+    the repair endpoint is an administrative action with no natural role, and
+    dropping it would take the plugin away from existing admin-only accounts.
+    """
+
+    message = (
+        "Editing explosive data requires staff status or the matching "
+        "InvenTree role."
+    )
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        if not (user and user.is_authenticated):
+            return False
+
+        if user.is_staff:
+            return True
+
+        role = getattr(view, "WRITE_ROLE", None)
+
+        if role is None:
+            return False
+
+        from users.permissions import check_user_role
+
+        return check_user_role(user, role, "change")
+
+
 class AdminWritesView(PluginView):
-    """Anyone signed in may read; only an admin may write."""
+    """Anyone signed in may read; writing needs staff or the object's role.
+
+    Subclasses set WRITE_ROLE to the InvenTree role that owns the data they
+    write ('stock' for a location's licence, 'part' for a part's explosive
+    properties). A view that sets no role is staff-only.
+    """
 
     WRITE_METHODS = ("POST", "PATCH", "PUT", "DELETE")
+    WRITE_ROLE = None
 
     def get_permissions(self):
         if self.request.method in self.WRITE_METHODS:
-            return [permissions.IsAdminUser()]
+            return [HasExplosivesWritePermission()]
         return [permissions.IsAuthenticated()]
 
 
 class LocationNEQView(AdminWritesView):
     """Total NEQ, licensed limit and contributing items for one location."""
+
+    WRITE_ROLE = "stock"
 
     def get(self, request, pk: int):
         from stock.models import StockLocation
@@ -111,10 +153,14 @@ class LocationNEQView(AdminWritesView):
             raise _missing_template_error("limit_kg", TPL_MAX_NEQ)
 
         try:
-            if value == "":
-                parameters.clear_parameter_value(location, TPL_MAX_NEQ)
-            else:
-                parameters.set_parameter_value(location, TPL_MAX_NEQ, value)
+            # One transaction, as the part PATCH already uses: a rejected value
+            # must leave the location exactly as it was, with no half-written
+            # parameter row behind it.
+            with transaction.atomic():
+                if value == "":
+                    parameters.clear_parameter_value(location, TPL_MAX_NEQ)
+                else:
+                    parameters.set_parameter_value(location, TPL_MAX_NEQ, value)
         except ValidationError as exc:
             raise drf_serializers.ValidationError({"limit_kg": exc.messages}) from exc
 
@@ -139,7 +185,9 @@ class LocationSummaryView(PluginView):
 
 
 class PartExplosiveView(AdminWritesView):
-    """Read, and for an admin edit, the explosive properties of one part."""
+    """Read, and for a permitted user edit, the explosive properties of a part."""
+
+    WRITE_ROLE = "part"
 
     def get(self, request, pk: int):
         from part.models import Part

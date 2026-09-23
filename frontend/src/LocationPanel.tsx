@@ -51,10 +51,14 @@ function LimitEditor({
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Keyed on the limit itself, not on the query object: a refetch that returns
+  // the same limit must not discard a half-typed one.
+  const serverLimit = massInput(data.limit_kg);
+
   useEffect(() => {
-    setValue(massInput(data.limit_kg));
+    setValue(serverLimit);
     setErrors([]);
-  }, [data]);
+  }, [serverLimit]);
 
   const submit = async (limit: string) => {
     setSaving(true);

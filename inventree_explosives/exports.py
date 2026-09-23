@@ -112,21 +112,27 @@ def location_row(location, include_sublocations=True, count_all_present=True) ->
     """Explosive columns for one StockLocation."""
     from . import neq as neq_module
 
-    summary = neq_module.location_summary(
+    # The totals alone, not location_summary(): an export row needs four
+    # scalars, and building the contributing-item detail for each exported
+    # location costs a query per stock item to then discard it.
+    neq_kg = neq_module.location_neq(
         location,
         include_sublocations=include_sublocations,
         count_all_present=count_all_present,
     )
+    limit_kg = neq_module.location_limit(location)
 
-    utilisation = summary["utilisation"]
+    licensed = limit_kg is not None
 
     return {
-        "explosive_neq_kg": summary["neq_kg"],
-        "explosive_limit_kg": summary["limit_kg"],
+        "explosive_neq_kg": neq_kg,
+        "explosive_limit_kg": limit_kg,
+        # Against a 0 kg limit, utilisation is undefined rather than 0 — the
+        # same rule location_summary() applies.
         "explosive_utilisation": (
-            round(utilisation * 100, 1) if utilisation is not None else None
+            round(neq_kg / limit_kg * 100, 1) if licensed and limit_kg else None
         ),
-        "explosive_over_limit": summary["over_limit"],
+        "explosive_over_limit": licensed and neq_kg > limit_kg,
     }
 
 

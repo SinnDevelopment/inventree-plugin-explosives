@@ -35,6 +35,10 @@ class LocationAPITest(ExplosivesTestCase):
             },
         )
 
+        from stock.models import StockLocation
+
+        self.unlicensed = StockLocation.objects.create(name="Shed")
+
     def url(self):
         return reverse("plugin:explosives:location-neq", kwargs={"pk": self.magazine.pk})
 
@@ -159,6 +163,101 @@ class LocationAPITest(ExplosivesTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("limit_kg", response.json())
 
+    def test_rejected_first_limit_leaves_the_location_untouched(self):
+        """A rejected value must not half-create the licence.
+
+        The parameter row used to be created before the value was validated, so
+        a typo on a location that had no limit yet left a row with no value
+        behind — and licensed_locations() counted it, putting a magazine with no
+        limit on the dashboard.
+        """
+        from common.models import Parameter
+
+        self.user.is_staff = True
+        self.user.save()
+
+        template = parameters.get_template(TPL_MAX_NEQ)
+        rows = Parameter.objects.filter(template=template, model_id=self.unlicensed.pk)
+
+        self.assertEqual(rows.count(), 0)
+
+        response = self.client.patch(
+            reverse(
+                "plugin:explosives:location-neq", kwargs={"pk": self.unlicensed.pk}
+            ),
+            data=json.dumps({"limit_kg": "about fifty"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(rows.count(), 0)
+        self.assertIsNone(neq.location_limit(self.unlicensed))
+
+        listed = [
+            summary["location_id"] for summary in self.plugin.licensed_locations()
+        ]
+        self.assertNotIn(self.unlicensed.pk, listed)
+
+    def test_valueless_limit_row_is_not_a_licence(self):
+        """A parameter row carrying no number does not make a magazine licensed.
+
+        Such a row can predate this plugin, or be left by a site editing the
+        parameter by hand; counting it would report an unlicensed location as
+        licensed with no limit.
+        """
+        from common.models import Parameter
+        from django.contrib.contenttypes.models import ContentType
+
+        Parameter.objects.create(
+            template=parameters.get_template(TPL_MAX_NEQ),
+            model_type=ContentType.objects.get_for_model(self.unlicensed),
+            model_id=self.unlicensed.pk,
+            data="",
+        )
+
+        listed = [
+            summary["location_id"] for summary in self.plugin.licensed_locations()
+        ]
+
+        self.assertNotIn(self.unlicensed.pk, listed)
+        self.assertNotIn(
+            self.unlicensed.pk,
+            [total["location_id"] for total in neq.location_totals()],
+        )
+
+    def test_patch_limit_allowed_for_stock_role_without_staff(self):
+        """Writes follow InvenTree's roles, not staff status alone."""
+        from django.contrib.auth.models import Group
+        from users.models import RuleSet
+
+        self.user.is_staff = False
+        self.user.is_superuser = False
+        self.user.save()
+
+        group = Group.objects.create(name="Magazine keepers")
+        RuleSet.objects.update_or_create(
+            group=group,
+            name="stock",
+            defaults={"can_view": True, "can_change": True},
+        )
+        self.user.groups.add(group)
+
+        response = self.patch_limit("75")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertAlmostEqual(neq.location_limit(self.magazine), 75.0, places=6)
+
+    def test_patch_limit_refused_without_staff_or_role(self):
+        self.user.is_staff = False
+        self.user.is_superuser = False
+        self.user.save()
+        self.user.groups.clear()
+
+        response = self.patch_limit("75")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertAlmostEqual(neq.location_limit(self.magazine), 50.0, places=6)
+
     def test_location_summary_lists_licensed_magazines(self):
         self.add_stock(self.part, 120)  # over limit
 
@@ -262,6 +361,22 @@ class ReportContextTest(ExplosivesTestCase):
         self.assertEqual(data["un_number"], "UN0042")
         self.assertAlmostEqual(data["neq_total_kg"], 5.0, places=6)
         self.assertAlmostEqual(data["gross_mass_total_kg"], 8.0, places=6)
+
+
+    def test_zero_neq_is_a_total_of_zero_not_unknown(self):
+        """0 kg NEQ is a number, not missing data.
+
+        An inert training article is legitimately 0 kg NEQ; reporting its total
+        as blank reads on a manifest as "nobody filled this in".
+        """
+        part = self.make_explosive_part(neq_kg="0", **{TPL_GROSS_MASS: "0"})
+        item = self.add_stock(part, 10)
+
+        context = {}
+        self.plugin.add_report_context(None, item, self.user, context)
+
+        self.assertEqual(context["explosives"]["neq_total_kg"], 0.0)
+        self.assertEqual(context["explosives"]["gross_mass_total_kg"], 0.0)
 
 
 class ExportTest(ExplosivesTestCase):

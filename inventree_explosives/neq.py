@@ -13,7 +13,15 @@ not what is available to sell. See present_stock_filter().
 from django.db.models import F, FloatField, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Cast, Coalesce
 
-from .constants import TPL_DIVISION, TPL_EXPLOSIVE, TPL_GROSS_MASS, TPL_MAX_NEQ, TPL_NEQ
+from .constants import (
+    TPL_COMPAT,
+    TPL_DIVISION,
+    TPL_EXPLOSIVE,
+    TPL_GROSS_MASS,
+    TPL_MAX_NEQ,
+    TPL_NEQ,
+    TPL_UN_NUMBER,
+)
 from .hazard import classification_code
 from .parameters import get_parameter_numeric, get_template
 
@@ -117,12 +125,19 @@ def neq_annotated_items(locations=None, count_all_present: bool = True):
             * Coalesce(F("gross_per_unit"), 0.0, output_field=FloatField()),
         )
 
-    division_template = get_template(TPL_DIVISION)
+    # Annotated, not read per row: _item_dict() would otherwise cost a query
+    # per field per stock item, which a magazine summary pays N times over.
+    for alias, name in (
+        ("division", TPL_DIVISION),
+        ("compatibility_group", TPL_COMPAT),
+        ("un_number", TPL_UN_NUMBER),
+    ):
+        template = get_template(name)
 
-    if division_template is not None:
-        queryset = queryset.annotate(
-            division=_part_parameter_subquery(division_template, numeric=False),
-        )
+        if template is not None:
+            queryset = queryset.annotate(
+                **{alias: _part_parameter_subquery(template, numeric=False)}
+            )
 
     return queryset
 
@@ -194,11 +209,8 @@ def location_summary(
 
 
 def _item_dict(item) -> dict:
-    from .constants import TPL_COMPAT, TPL_UN_NUMBER
-    from .parameters import get_parameter_value
-
     division = getattr(item, "division", None)
-    group = get_parameter_value(item.part, TPL_COMPAT)
+    group = getattr(item, "compatibility_group", None)
 
     return {
         "stock_item_id": item.pk,
@@ -212,7 +224,7 @@ def _item_dict(item) -> dict:
         "division": division,
         "compatibility_group": group,
         "classification_code": classification_code(division, group),
-        "un_number": get_parameter_value(item.part, TPL_UN_NUMBER),
+        "un_number": getattr(item, "un_number", None),
     }
 
 
@@ -327,6 +339,15 @@ def check_prospective_limit(
         StockItem.objects.filter(pk=stock_item.pk).first() if stock_item.pk else None
     )
 
+    # The stale contribution is what the *stored* row added to `current`, so it
+    # is priced with the part that row held. Using the proposed part's NEQ would
+    # subtract a quantity that was never in the total when the part changed.
+    previous_neq_per_unit = (
+        neq_per_unit
+        if previous is None or previous.part_id == stock_item.part_id
+        else (get_parameter_numeric(previous.part, TPL_NEQ) or 0.0)
+    )
+
     proposed = (
         float(stock_item.quantity) * neq_per_unit
         if is_present(stock_item, count_all_present)
@@ -336,6 +357,8 @@ def check_prospective_limit(
     breaches = []
 
     for magazine in licensed_ancestors(location, include_sublocations):
+        _lock_magazine(magazine)
+
         limit = location_limit(magazine)
         current = location_neq(magazine, include_sublocations, count_all_present)
 
@@ -348,7 +371,7 @@ def check_prospective_limit(
             and is_present(previous, count_all_present)
             and _within_scope(magazine, previous.location_id, include_sublocations)
         ):
-            stale = float(previous.quantity) * neq_per_unit
+            stale = float(previous.quantity) * previous_neq_per_unit
 
         prospective = current - stale + proposed
 
@@ -359,6 +382,44 @@ def check_prospective_limit(
         return None
 
     return max(breaches, key=lambda breach: breach.excess)
+
+
+def _lock_magazine(magazine) -> bool:
+    """Serialise concurrent limit checks against one magazine.
+
+    The check is read-then-write: it totals what the magazine holds, and the
+    caller then saves. Two transfers into the same magazine that both read the
+    pre-move total can both be judged compliant and together breach the licence.
+
+    Taking a row lock on the magazine before reading the total closes that
+    window, because the lock is held until the surrounding transaction commits
+    — which is after the save the check is guarding.
+
+    That only works inside a transaction. Outside one there is nothing to hold
+    the lock, and SELECT ... FOR UPDATE raises; the check then runs unprotected
+    and the post-event magazine audit remains the backstop. Returns whether the
+    lock was actually taken, so callers can be tested on both paths.
+    """
+    from django.db import connection
+    from stock.models import StockLocation
+
+    if not connection.in_atomic_block:
+        return False
+
+    # Databases without row locking (sqlite) cannot take it; they also serialise
+    # writers, which gives the same protection by other means.
+    if not connection.features.has_select_for_update:
+        return False
+
+    # Evaluated, not just built: the lock is taken when the query runs, and held
+    # until the surrounding transaction commits.
+    list(
+        StockLocation.objects.select_for_update()
+        .filter(pk=magazine.pk)
+        .values_list("pk", flat=True)
+    )
+
+    return True
 
 
 def _within_scope(magazine, location_id: int, include_sublocations: bool) -> bool:
@@ -372,6 +433,57 @@ def _within_scope(magazine, location_id: int, include_sublocations: bool) -> boo
     return magazine.get_descendants().filter(pk=location_id).exists()
 
 
+def licensed_location_queryset():
+    """Every StockLocation that actually has a licensed limit stored.
+
+    Filtered on the stored value, not merely on the presence of a parameter row:
+    a row whose value is blank is not a licence, and treating it as one puts a
+    magazine with no limit on the dashboard.
+    """
+    from stock.models import StockLocation
+
+    template = get_template(TPL_MAX_NEQ)
+
+    if template is None:
+        return StockLocation.objects.none()
+
+    return StockLocation.objects.filter(
+        parameters_list__template=template,
+        parameters_list__data_numeric__isnull=False,
+    ).distinct()
+
+
+def location_totals(
+    include_sublocations: bool = True, count_all_present: bool = True
+) -> list[dict]:
+    """Held-versus-licensed totals for every licensed magazine.
+
+    The cheap counterpart to licensed_locations(): no per-item detail, so the
+    cost is a fixed handful of queries per magazine rather than one per stock
+    item. Used by the post-event audit, which runs on every stock movement and
+    only needs to know whether a magazine is over its licence.
+    """
+    totals = []
+
+    for location in licensed_location_queryset():
+        limit_kg = location_limit(location)
+
+        if limit_kg is None:
+            continue
+
+        neq_kg = location_neq(location, include_sublocations, count_all_present)
+
+        totals.append({
+            "location_id": location.pk,
+            "location_name": location.name,
+            "neq_kg": neq_kg,
+            "limit_kg": limit_kg,
+            "over_limit": neq_kg > limit_kg,
+        })
+
+    return totals
+
+
 def licensed_locations(
     include_sublocations: bool = True, count_all_present: bool = True
 ) -> list[dict]:
@@ -381,24 +493,13 @@ def licensed_locations(
     of them must use the same accounting rules as the location panel, or the
     dashboard reports a breach the panel says does not exist.
     """
-    from stock.models import StockLocation
-
-    template = get_template(TPL_MAX_NEQ)
-
-    if template is None:
-        return []
-
-    locations = StockLocation.objects.filter(
-        parameters_list__template=template
-    ).distinct()
-
     summaries = [
         location_summary(
             location,
             include_sublocations=include_sublocations,
             count_all_present=count_all_present,
         )
-        for location in locations
+        for location in licensed_location_queryset()
     ]
 
     # Breached first, then by utilisation: a 0 kg limit has a null utilisation

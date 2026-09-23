@@ -155,3 +155,62 @@ class BootstrapTest(InvenTreeTestCase):
         neq = next(t for t in status["templates"] if t["name"] == TPL_NEQ)
         self.assertTrue(neq["present"])
         self.assertFalse(neq["ok"])
+
+
+class TemplateCacheTest(InvenTreeTestCase):
+    """Templates are memoised, and the memo must not outlive the truth.
+
+    Every parameter read resolves its template by name, so an uncached lookup
+    costs a query per field per row. The cache is only safe while a template
+    that is renamed, re-declared or deleted invalidates it.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        parameters.clear_template_cache()
+        parameters.connect_cache_invalidation()
+        parameters.ensure_parameter_templates()
+
+    def test_repeat_lookups_do_not_query(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        parameters.get_template(TPL_NEQ)
+
+        with CaptureQueriesContext(connection) as queries:
+            for _ in range(5):
+                parameters.get_template(TPL_NEQ)
+
+        self.assertEqual(len(queries), 0)
+
+    def test_deleting_a_template_invalidates_the_cache(self):
+        self.assertIsNotNone(parameters.get_template(TPL_NEQ))
+
+        ParameterTemplate.objects.filter(name__iexact=TPL_NEQ).delete()
+
+        self.assertIsNone(
+            parameters.get_template(TPL_NEQ),
+            "a deleted template was still served from the cache",
+        )
+
+    def test_renaming_a_template_invalidates_the_cache(self):
+        self.assertIsNotNone(parameters.get_template(TPL_NEQ))
+
+        template = ParameterTemplate.objects.get(name__iexact=TPL_NEQ)
+        template.name = "Something else entirely"
+        template.save()
+
+        self.assertIsNone(parameters.get_template(TPL_NEQ))
+
+    def test_health_checks_read_through_the_cache(self):
+        """status() must report the database, not a remembered lookup."""
+        ParameterTemplate.objects.filter(name__iexact=TPL_NEQ).delete()
+
+        report = parameters.status()
+
+        missing = [t for t in report["templates"] if not t["present"]]
+
+        self.assertEqual([t["name"] for t in missing], [TPL_NEQ])
+        self.assertFalse(report["ready"])
+

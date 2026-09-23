@@ -145,6 +145,10 @@ def ensure_parameter_templates() -> dict:
     """
     result = {"created": [], "existing": [], "errors": []}
 
+    # Templates may be created or found unfit below; never answer from a
+    # remembered lookup while deciding that.
+    clear_template_cache()
+
     if not _database_ready():
         logger.debug("explosives: database not ready, skipping template bootstrap")
         return result
@@ -170,6 +174,7 @@ def ensure_parameter_templates() -> dict:
                 name=name, model_type=_content_type(model), **fields
             )
             result["created"].append(name)
+            clear_template_cache()
             logger.info("explosives: created ParameterTemplate '%s'", name)
 
         except Exception as exc:
@@ -215,19 +220,80 @@ def _check_template(template, name: str, model: str, fields: dict) -> list[str]:
     return problems
 
 
-def get_template(name: str):
+# name -> ParameterTemplate, populated on first successful lookup.
+#
+# Every value read goes through get_template(), so an uncached lookup costs one
+# query per field per row: a magazine summary of N stock items ran 4.5 queries
+# per item before this cache existed. Only *found* templates are cached, because
+# bootstrap may create a missing one later in the same process, and the health
+# surfaces (config_errors/status) pass refresh=True so they always report the
+# real database state rather than a remembered one.
+#
+# The cached object is used for its identity only (filtering Parameter rows by
+# template), never for its units or choices — those are read from the row's own
+# template — so a template edited in the admin cannot make a cached copy lie
+# about a stored value.
+_TEMPLATE_CACHE: dict[str, object] = {}
+
+
+def clear_template_cache(*args, **kwargs) -> None:
+    """Forget every memoised template.
+
+    Called by bootstrap, by the plugin on load, and by the ParameterTemplate
+    signals connected below — so a template renamed, re-declared in different
+    units or deleted in the admin cannot be served from a stale lookup. Takes
+    the signal kwargs and ignores them.
+    """
+    _TEMPLATE_CACHE.clear()
+
+
+def connect_cache_invalidation() -> None:
+    """Invalidate the template cache whenever a ParameterTemplate changes.
+
+    Connected from the plugin's __init__ rather than at module import, so this
+    module stays importable without Django's app registry. dispatch_uid makes a
+    repeat call (every registry reload) a no-op.
+    """
+    from django.db.models.signals import post_delete, post_save
+
+    for signal, uid in (
+        (post_save, "explosives_template_cache_save"),
+        (post_delete, "explosives_template_cache_delete"),
+    ):
+        signal.connect(
+            clear_template_cache,
+            sender="common.ParameterTemplate",
+            dispatch_uid=uid,
+        )
+
+
+def get_template(name: str, refresh: bool = False):
     """Look up one of our ParameterTemplates by name, or None if absent.
 
-    Not cached at import time: the database is not up when this module is
+    Not resolved at import time: the database is not up when this module is
     imported. Not memoised on a None result either, because bootstrap may
     create the template later in the same process.
+
+    Pass refresh=True to bypass the cache, for callers that report on the
+    templates themselves rather than read values through them.
     """
+    if not refresh:
+        cached = _TEMPLATE_CACHE.get(name)
+
+        if cached is not None:
+            return cached
+
     try:
         from common.models import ParameterTemplate
 
-        return ParameterTemplate.objects.filter(name__iexact=name).first()
+        template = ParameterTemplate.objects.filter(name__iexact=name).first()
     except Exception:  # noqa: BLE001 - lookup runs before the database may exist
         return None
+
+    if template is not None:
+        _TEMPLATE_CACHE[name] = template
+
+    return template
 
 
 def get_parameter_value(instance, template_name: str):
@@ -278,11 +344,21 @@ def set_parameter_value(instance, template_name: str, value, validate: bool = Tr
     if template is None:
         return None
 
-    parameter, _ = Parameter.objects.get_or_create(
-        template=template,
-        model_type=ContentType.objects.get_for_model(instance),
-        model_id=instance.pk,
-    )
+    model_type = ContentType.objects.get_for_model(instance)
+
+    # Built unsaved when absent, rather than get_or_create()'d: get_or_create
+    # commits a row with an empty data field before full_clean() has had a say,
+    # so a rejected value used to leave a valueless parameter behind. On a
+    # location that made the magazine look licensed-with-no-limit.
+    parameter = Parameter.objects.filter(
+        template=template, model_type=model_type, model_id=instance.pk
+    ).first()
+
+    if parameter is None:
+        parameter = Parameter(
+            template=template, model_type=model_type, model_id=instance.pk
+        )
+
     parameter.data = str(value)
 
     if validate:
@@ -320,29 +396,48 @@ def clear_parameter_value(instance, template_name: str) -> None:
     ).delete()
 
 
-def config_errors() -> list[str]:
-    """Return current configuration problems, for display in the UI panels.
+def _template_report() -> list[dict]:
+    """Per-template presence and problems. One query per template.
 
-    Cheap enough to call per request: one query per template.
+    The single place the templates themselves are inspected: config_errors()
+    and status() both read it, so the settings page does not check every
+    template twice.
     """
-    errors = []
-
-    if not _database_ready():
-        return errors
+    report = []
 
     for name, model, fields in TEMPLATE_SPECS:
-        template = get_template(name)
+        # refresh=True: this is the health surface, so it must see the database
+        # rather than a memoised lookup.
+        template = get_template(name, refresh=True)
 
         if template is None:
-            errors.append(
-                f"Parameter template '{name}' is missing. "
-                f"Use the plugin settings to re-run setup."
-            )
+            report.append({
+                "name": name,
+                "present": False,
+                "problems": [
+                    f"Parameter template '{name}' is missing. "
+                    f"Use the plugin settings to re-run setup."
+                ],
+            })
             continue
 
-        errors.extend(_check_template(template, name, model, fields))
+        report.append({
+            "name": name,
+            "present": True,
+            "problems": _check_template(template, name, model, fields),
+        })
 
-    return errors
+    return report
+
+
+def config_errors() -> list[str]:
+    """Return current configuration problems, for display in the UI panels."""
+    if not _database_ready():
+        return []
+
+    return [
+        problem for entry in _template_report() for problem in entry["problems"]
+    ]
 
 
 def status() -> dict:
@@ -353,16 +448,18 @@ def status() -> dict:
     breakdown so the settings page can show exactly what is missing or wrong
     without an admin having to read the server log.
     """
-    templates = []
+    report = _template_report()
 
-    for name, model, fields in TEMPLATE_SPECS:
-        template = get_template(name)
-        present = template is not None
-        ok = present and not _check_template(template, name, model, fields)
+    templates = [
+        {
+            "name": entry["name"],
+            "present": entry["present"],
+            "ok": entry["present"] and not entry["problems"],
+        }
+        for entry in report
+    ]
 
-        templates.append({"name": name, "present": present, "ok": ok})
-
-    errors = config_errors()
+    errors = [problem for entry in report for problem in entry["problems"]]
 
     return {
         "ready": not errors and all(t["ok"] for t in templates),
