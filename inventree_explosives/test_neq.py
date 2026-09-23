@@ -404,3 +404,89 @@ class LimitTest(ExplosivesTestCase):
         self.assertEqual(summaries[0]["location_name"], "Magazine 2")
         self.assertTrue(summaries[0]["over_limit"])
         self.assertFalse(summaries[1]["over_limit"])
+
+
+class QueryCostTest(ExplosivesTestCase):
+    """Reads must not cost a query per stock item.
+
+    Every watched stock event audits the magazines, and a panel or export can
+    summarise a whole magazine. When that work scales with the amount of
+    explosive stock on hand, a busy site pays it on every movement.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.set_parameter(self.magazine, TPL_MAX_NEQ, "10000")
+
+        self.part = self.make_explosive_part(
+            neq_kg="0.5", **{TPL_DIVISION: "1.4", TPL_COMPAT: "S"}
+        )
+
+    def queries_for(self, call) -> int:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        call()  # warm the template cache; we are counting the steady state
+
+        with CaptureQueriesContext(connection) as queries:
+            call()
+
+        return len(queries)
+
+    def add_items(self, count):
+        for _ in range(count):
+            self.add_stock(self.part, 2)
+
+    def test_location_summary_does_not_scale_with_stock(self):
+        self.add_items(2)
+        few = self.queries_for(lambda: neq.location_summary(self.magazine))
+
+        self.add_items(10)
+        many = self.queries_for(lambda: neq.location_summary(self.magazine))
+
+        self.assertEqual(
+            few,
+            many,
+            f"summary cost grew from {few} to {many} queries for 10 more items",
+        )
+
+    def test_audit_totals_do_not_scale_with_stock(self):
+        self.add_items(2)
+        few = self.queries_for(neq.location_totals)
+
+        self.add_items(10)
+        many = self.queries_for(neq.location_totals)
+
+        self.assertEqual(few, many)
+
+    def test_stock_event_audit_does_not_scale_with_stock(self):
+        self.add_items(2)
+        few = self.queries_for(lambda: self.plugin.process_event("stockitem.moved"))
+
+        self.add_items(10)
+        many = self.queries_for(lambda: self.plugin.process_event("stockitem.moved"))
+
+        self.assertEqual(
+            few,
+            many,
+            f"one stock event grew from {few} to {many} queries for 10 more items",
+        )
+
+    def test_location_export_row_does_not_scale_with_stock(self):
+        """An export of many locations must not walk every magazine's stock."""
+        from . import exports
+
+        self.add_items(2)
+        few = self.queries_for(lambda: exports.location_row(self.magazine))
+
+        self.add_items(10)
+        many = self.queries_for(lambda: exports.location_row(self.magazine))
+
+        self.assertEqual(few, many)
+        self.assertLessEqual(
+            many,
+            self.queries_for(lambda: neq.location_summary(self.magazine)),
+            "an export row costs more than the full summary it avoids building",
+        )
+

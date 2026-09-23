@@ -114,6 +114,78 @@ class StaleContributionTest(ExplosivesTestCase):
         self.assertIsNone(neq.check_prospective_limit(item))
 
 
+class PartChangeTest(ExplosivesTestCase):
+    """The stale contribution must be priced with the part that was stored.
+
+    A stock item whose part is changed contributed its *old* part's NEQ to the
+    current total. Subtracting the new part's NEQ instead removes more than was
+    ever there, and a breaching change reads as compliant.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.set_parameter(self.magazine, TPL_MAX_NEQ, "55")
+
+        self.light = self.make_explosive_part(name="Light", neq_kg="1")
+        self.heavy = self.make_explosive_part(name="Heavy", neq_kg="5")
+
+    def test_swapping_to_a_heavier_part_is_checked_against_the_limit(self):
+        item = self.add_stock(self.light, 10)  # 10 kg
+        self.add_stock(self.light, 10)  # 10 kg more, held by another item
+
+        self.assertAlmostEqual(neq.location_neq(self.magazine), 20.0, places=6)
+
+        # 10 units of the heavy part is 50 kg. The magazine already holds 10 kg
+        # in the other item, so the move lands at 60 kg against a 55 kg licence.
+        item.part = self.heavy
+
+        breach = neq.check_prospective_limit(item)
+
+        self.assertIsNotNone(breach, "a breaching part change was judged compliant")
+        self.assertAlmostEqual(breach.prospective, 60.0, places=6)
+
+
+class MagazineLockTest(ExplosivesTestCase):
+    """The limit check takes a row lock when it is able to.
+
+    The check is read-then-write, so without a lock two concurrent moves into
+    one magazine can both read the pre-move total and both be judged compliant.
+    """
+
+    def test_lock_is_not_attempted_outside_a_transaction(self):
+        from django.db import transaction
+
+        # A lock taken here could not be held past this statement, and
+        # SELECT ... FOR UPDATE raises outside a transaction.
+        with transaction.atomic():
+            in_transaction = neq._lock_magazine(self.magazine)
+
+        self.assertIs(
+            neq._lock_magazine(self.magazine),
+            False,
+            "a lock was attempted with no transaction to hold it",
+        )
+
+        from django.db import connection
+
+        self.assertEqual(in_transaction, connection.features.has_select_for_update)
+
+    def test_limit_check_still_works_inside_a_transaction(self):
+        from django.db import transaction
+
+        self.set_parameter(self.magazine, TPL_MAX_NEQ, "10")
+        part = self.make_explosive_part(neq_kg="1")
+
+        item = StockItem(part=part, quantity=20, location=self.magazine)
+
+        with transaction.atomic():
+            breach = neq.check_prospective_limit(item)
+
+        self.assertIsNotNone(breach)
+        self.assertAlmostEqual(breach.prospective, 20.0, places=6)
+
+
 class ZeroLimitTest(ExplosivesTestCase):
     """A 0 kg limit means 'no explosives permitted', not 'no limit set'."""
 

@@ -19,7 +19,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
   errorMessages,
@@ -70,11 +70,15 @@ function EditForm({
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Re-sync when the server data changes (e.g. after a save refetch).
+  // Re-sync when the server *values* change, not on every new query object: a
+  // refetch that returns the same data must not discard what is being typed.
+  const serverForm = useMemo(() => toForm(data), [data]);
+  const serverSignature = JSON.stringify(serverForm);
+
   useEffect(() => {
-    setForm(toForm(data));
+    setForm(serverForm);
     setErrors([]);
-  }, [data]);
+  }, [serverSignature]);
 
   const refresh = () =>
     context.queryClient.invalidateQueries({

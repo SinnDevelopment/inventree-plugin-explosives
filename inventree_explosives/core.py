@@ -174,6 +174,11 @@ class ExplosivesPlugin(
         super().__init__(*args, **kwargs)
 
         try:
+            # Templates are memoised for the life of the process; these keep the
+            # memo honest, and drop anything a previous registry left behind.
+            parameters.clear_template_cache()
+            parameters.connect_cache_invalidation()
+
             self._run_bootstrap("load")
         except Exception:
             # A plugin that raises on load takes the whole registry down.
@@ -315,13 +320,23 @@ class ExplosivesPlugin(
 
         Validation prevents breaches on the normal save path; this notices the
         ones that arrive via bulk updates, which never call save() at all.
+
+        Deliberately uses neq.location_totals() rather than the full summaries:
+        this runs on every watched stock event, and building the per-item detail
+        costs a query per stock item in every licensed magazine — work that is
+        thrown away, since all the audit asks is whether a magazine is over.
         """
         if self.get_setting("LIMIT_ACTION") == "off":
             return
 
-        for summary in self.licensed_locations():
-            if summary["over_limit"]:
-                self._notify_breach(summary)
+        totals = neq.location_totals(
+            include_sublocations=self._include_sublocations(),
+            count_all_present=self._count_all_present(),
+        )
+
+        for total in totals:
+            if total["over_limit"]:
+                self._notify_breach(total)
 
     def _notify_breach(self, summary: dict):
         from stock.models import StockLocation
@@ -556,9 +571,13 @@ class ExplosivesPlugin(
         data.update(
             {
                 "quantity": quantity,
-                "neq_total_kg": (neq_per_unit * quantity) if neq_per_unit else None,
+                # `is not None`, not truthiness: a part whose NEQ is genuinely
+                # 0 kg has a total of 0 kg, not an unknown one.
+                "neq_total_kg": (
+                    (neq_per_unit * quantity) if neq_per_unit is not None else None
+                ),
                 "gross_mass_total_kg": (
-                    (gross_per_unit * quantity) if gross_per_unit else None
+                    (gross_per_unit * quantity) if gross_per_unit is not None else None
                 ),
             }
         )
