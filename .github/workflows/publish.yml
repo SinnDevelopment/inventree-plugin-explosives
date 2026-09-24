@@ -59,7 +59,7 @@ jobs:
 
       - name: Fail if the frontend bundle is missing
         run: |
-          for entry in Panel LocationPanel Dashboard Settings; do
+          for entry in PartPanel LocationPanel Dashboard Settings; do
             if [ ! -f "inventree_explosives/static/$entry.js" ]; then
               echo "::error::inventree_explosives/static/$entry.js was not built"
               exit 1
@@ -88,7 +88,7 @@ jobs:
 
           missing = [
               f"inventree_explosives/static/{entry}.js"
-              for entry in ("Panel", "LocationPanel", "Dashboard", "Settings")
+              for entry in ("PartPanel", "LocationPanel", "Dashboard", "Settings")
               if f"inventree_explosives/static/{entry}.js" not in names
           ]
 
