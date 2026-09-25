@@ -201,12 +201,12 @@ Before the first release, register the trusted publisher on PyPI (Project →
 Settings → Publishing, or as a *pending publisher* if the project does not exist
 there yet):
 
-| Field | Value |
-|---|---|
-| Owner | `sinndevelopment` |
-| Repository | `inventree-plugin-explosives` |
-| Workflow | `publish.yml` |
-| Environment | `pypi` |
+| Field       | Value                         |
+|-------------|-------------------------------|
+| Owner       | `sinndevelopment`             |
+| Repository  | `inventree-plugin-explosives` |
+| Workflow    | `publish.yml`                 |
+| Environment | `pypi`                        |
 
 Then create a `pypi` environment under repository Settings → Environments. Any
 protection rules on it (required reviewers, tag restrictions) gate every release.
@@ -217,11 +217,11 @@ InvenTree, and a failure blocks the release.
 
 ### Continuous integration
 
-| Workflow | When | What |
-|---|---|---|
-| `ci.yaml` | every push and PR | ruff, biome, package build, frontend build, and the standalone classification-table tests |
-| `test.yaml` | pushes to `main`, and before every release | the full suite against a real InvenTree checkout |
-| `publish.yml` | published release | full suite → build → publish via OIDC |
+| Workflow      | When                                       | What                                                                                      |
+|---------------|--------------------------------------------|-------------------------------------------------------------------------------------------|
+| `ci.yaml`     | every push and PR                          | ruff, biome, package build, frontend build, and the standalone classification-table tests |
+| `test.yaml`   | pushes to `main`, and before every release | the full suite against a real InvenTree checkout                                          |
+| `publish.yml` | published release                          | full suite → build → publish via OIDC                                                     |
 
 `test.yaml` is a reusable workflow. It pins the InvenTree version it tests
 against (currently 1.4.1); bump the `inventree-ref` default when upgrading, or
