@@ -22,10 +22,46 @@ permissions:
   contents: read
 
 jobs:
+  # The package version comes from PLUGIN_VERSION, not the tag. If the two
+  # disagree the build republishes an existing version and PyPI rejects the
+  # upload as a duplicate, but only at the last step. Fail here instead, before
+  # the test suite runs. Manual runs must also target a tag, so every published
+  # version maps to one.
+  version:
+    name: Tag matches PLUGIN_VERSION
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Compare tag with PLUGIN_VERSION
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::Publishing must run on a tag, not the $GITHUB_REF_TYPE '$GITHUB_REF_NAME'"
+            exit 1
+          fi
+
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(python -c 'from inventree_explosives import PLUGIN_VERSION; print(PLUGIN_VERSION)')"
+
+          if [ "$tag" != "$version" ]; then
+            echo "::error file=inventree_explosives/__init__.py::Tag $GITHUB_REF_NAME does not match PLUGIN_VERSION $version. Bump PLUGIN_VERSION and tag that commit."
+            exit 1
+          fi
+
+          echo "Publishing $version"
+
   # Nothing is built or published unless the full suite passes against a real
   # InvenTree. The numbers this plugin reports are compliance numbers.
   tests:
     name: Full test suite
+    needs: version
     uses: ./.github/workflows/test.yaml
 
   build:
