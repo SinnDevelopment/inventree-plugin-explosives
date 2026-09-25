@@ -1,39 +1,51 @@
-# Publish to PyPI using trusted publishing (OIDC) — no API token required.
-#
-# The trusted publisher registered on PyPI matches on the exact workflow
-# filename, so DO NOT rename this file without updating PyPI to match:
-#
-#   Owner:            sinndevelopment
-#   Repository:       inventree-plugin-explosives
-#   Workflow:         publish.yml
-#   Environment:      pypi
-#
-# The `pypi` environment must also exist under repository Settings > Environments;
-# protection rules on it (e.g. required reviewers) gate every release.
-
-name: Publish to PyPI
+name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  # The package version comes from PLUGIN_VERSION, not the tag. If the two
-  # disagree the build republishes an existing version and PyPI rejects the
-  # upload as a duplicate, but only at the last step. Fail here instead, before
-  # the test suite runs. Manual runs must also target a tag, so every published
-  # version maps to one.
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+
+    steps:
+      - name: Run release-please
+        id: release
+        if: github.event_name == 'push'
+        uses: googleapis/release-please-action@v5
+
   version:
     name: Tag matches PLUGIN_VERSION
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -41,24 +53,34 @@ jobs:
           python-version: "3.12"
 
       - name: Compare tag with PLUGIN_VERSION
+        id: check
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            echo "::error::Publishing must run on a tag, not the $GITHUB_REF_TYPE '$GITHUB_REF_NAME'"
+          if [ -n "$RELEASE_TAG" ]; then
+            tag="$RELEASE_TAG"
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            echo "::error::A manual publish must run on a tag, not the $GITHUB_REF_TYPE '$GITHUB_REF_NAME'"
             exit 1
           fi
 
-          tag="${GITHUB_REF_NAME#v}"
           version="$(python -c 'from inventree_explosives import PLUGIN_VERSION; print(PLUGIN_VERSION)')"
 
-          if [ "$tag" != "$version" ]; then
-            echo "::error file=inventree_explosives/__init__.py::Tag $GITHUB_REF_NAME does not match PLUGIN_VERSION $version. Bump PLUGIN_VERSION and tag that commit."
+          if [ "${tag#v}" != "$version" ]; then
+            echo "::error file=inventree_explosives/__init__.py::Tag $tag does not match PLUGIN_VERSION $version"
             exit 1
           fi
 
-          echo "Publishing $version"
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $tag is $(git rev-parse HEAD), but this run is for $GITHUB_SHA. Republish it with a manual run on the tag."
+            exit 1
+          fi
 
-  # Nothing is built or published unless the full suite passes against a real
-  # InvenTree. The numbers this plugin reports are compliance numbers.
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Publishing $version from $tag"
+
   tests:
     name: Full test suite
     needs: version
@@ -66,12 +88,14 @@ jobs:
 
   build:
     name: Build distribution
-    needs: tests
+    needs: [version, tests]
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -85,8 +109,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # The wheel must contain the built panels. Without this the package installs
-      # cleanly and then every UI panel silently fails to render.
       - name: Build frontend
         run: |
           cd frontend
@@ -112,8 +134,6 @@ jobs:
           python -m pip install --upgrade twine
           python -m twine check dist/*
 
-      # Guard against shipping a wheel whose static/ is empty despite the build
-      # step above (e.g. a MANIFEST.in or packaging regression).
       - name: Fail if the wheel does not contain the panels
         run: |
           python - <<'PY'
@@ -150,8 +170,6 @@ jobs:
       url: https://pypi.org/p/inventree-plugin-explosives
 
     permissions:
-      # Required for trusted publishing: mints the short-lived OIDC token that
-      # PyPI exchanges for an upload token. No PYPI_API_TOKEN secret is used.
       id-token: write
 
     steps:
